@@ -1,0 +1,454 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-vanilla-cream: #f0ead2;
+  --color-tea-green: #dde5b6;
+  --color-muted-olive: #adc178;
+  --color-faded-copper: #a98467;
+  --color-ash-brown: #6c584c;
+  --color-dark: #6c584c;
+  --color-muted: #6c584c99;
+  --color-border: #e8e4d6;
+  --color-border-light: #f2efe6;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  font-family: 'Readex Pro', system-ui, -apple-system, sans-serif;
+  background: #000;
+  color: #fff;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.hero-title {
+  letter-spacing: -0.04em;
+  line-height: 0.95;
+}
+
+/* Studio workspace — matches landing / login dark palette */
+.studio-workspace {
+  --color-vanilla-cream: #000000;
+  --color-tea-green: rgba(255, 255, 255, 0.08);
+  --color-muted-olive: #ffffff;
+  --color-faded-copper: rgba(255, 255, 255, 0.55);
+  --color-ash-brown: #ffffff;
+  --color-dark: #ffffff;
+  --color-muted: rgba(255, 255, 255, 0.6);
+  --color-border: rgba(255, 255, 255, 0.12);
+  --color-border-light: rgba(255, 255, 255, 0.08);
+  --studio-glass-bg: rgba(255, 255, 255, 0.05);
+  --studio-glass-bg-elevated: rgba(255, 255, 255, 0.08);
+  --studio-glass-border: rgba(255, 255, 255, 0.12);
+  --studio-glass-highlight: rgba(255, 255, 255, 0.14);
+  --studio-glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+  --studio-glass-inset: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+
+  position: relative;
+  isolation: isolate;
+  background-color: #000000;
+  color: #ffffff;
+  font-family: 'Readex Pro', system-ui, -apple-system, sans-serif;
+  overflow-x: hidden;
+}
+
+.studio-workspace::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(ellipse 70% 45% at 15% -5%, rgba(255, 255, 255, 0.09), transparent 55%),
+    radial-gradient(ellipse 55% 35% at 88% 12%, rgba(255, 255, 255, 0.06), transparent 50%),
+    radial-gradient(ellipse 45% 40% at 50% 105%, rgba(255, 255, 255, 0.05), transparent 55%);
+}
+
+.studio-workspace>* {
+  position: relative;
+  z-index: 1;
+}
+
+/* Glass surface utilities */
+.studio-glass {
+  background: var(--studio-glass-bg);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  border: 1px solid var(--studio-glass-border);
+  box-shadow: var(--studio-glass-shadow), var(--studio-glass-inset);
+}
+
+.studio-glass-elevated {
+  background: var(--studio-glass-bg-elevated);
+  backdrop-filter: blur(24px) saturate(170%);
+  -webkit-backdrop-filter: blur(24px) saturate(170%);
+  border: 1px solid var(--studio-glass-highlight);
+  box-shadow: var(--studio-glass-shadow), var(--studio-glass-inset);
+}
+
+.studio-glass-subtle {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(14px) saturate(150%);
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.studio-workspace h1,
+.studio-workspace h2,
+.studio-workspace h3 {
+  letter-spacing: -0.02em;
+}
+
+.studio-workspace .text-dark {
+  color: #ffffff;
+}
+
+.studio-workspace .text-muted {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.studio-workspace .border-border {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.studio-workspace .bg-white {
+  background-color: var(--studio-glass-bg);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  box-shadow: var(--studio-glass-shadow), var(--studio-glass-inset);
+}
+
+.studio-workspace .bg-soft {
+  background-color: var(--studio-glass-bg-elevated);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  box-shadow: var(--studio-glass-inset);
+}
+
+.studio-workspace .bg-neutral-950,
+.studio-workspace .bg-neutral-900,
+.studio-workspace .bg-neutral-900\/90 {
+  background-color: var(--studio-glass-bg);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  box-shadow: var(--studio-glass-inset);
+}
+
+.studio-workspace .shadow-sm {
+  box-shadow: var(--studio-glass-shadow), var(--studio-glass-inset);
+}
+
+.studio-workspace .input-field {
+  width: 100%;
+  border-radius: 0.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background-color: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(12px) saturate(150%);
+  -webkit-backdrop-filter: blur(12px) saturate(150%);
+  color: #ffffff;
+  padding: 0.625rem 0.75rem;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.studio-workspace .input-field::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.studio-workspace .input-field:focus {
+  outline: none;
+  border-color: rgba(255, 255, 255, 0.32);
+  background-color: rgba(255, 255, 255, 0.07);
+  box-shadow:
+    0 0 0 2px rgba(255, 255, 255, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.studio-workspace .input-field:disabled {
+  opacity: 0.45;
+}
+
+.studio-workspace .markdown-body.text-dark,
+.studio-workspace .markdown-body:not(.text-white) {
+  color: #ffffff;
+}
+
+.studio-workspace .markdown-body th,
+.studio-workspace .markdown-body h1,
+.studio-workspace .markdown-body h2,
+.studio-workspace .markdown-body h3,
+.studio-workspace .markdown-body strong {
+  color: #ffffff;
+}
+
+.studio-workspace .markdown-body h1 {
+  border-bottom-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Primary actions: white pill on black (matches landing CTA) */
+.studio-workspace .bg-\[var\(--color-muted-olive\)\].text-white,
+.studio-workspace .bg-\[var\(--color-muted-olive\)\].text-\[var\(--color-vanilla-cream\)\] {
+  color: #000000;
+}
+
+.studio-workspace .bg-\[var\(--color-tea-green\)\]\/45,
+.studio-workspace .bg-\[var\(--color-tea-green\)\]\/35,
+.studio-workspace .bg-\[var\(--color-tea-green\)\]\/30,
+.studio-workspace .bg-\[var\(--color-tea-green\)\]\/25,
+.studio-workspace .bg-\[var\(--color-tea-green\)\]\/20,
+.studio-workspace .bg-\[var\(--color-tea-green\)\]\/40 {
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  color: #ffffff;
+}
+
+.studio-workspace .bg-\[var\(--color-vanilla-cream\)\],
+.studio-workspace .bg-\[var\(--color-vanilla-cream\)\]\/20 {
+  background-color: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(14px) saturate(150%);
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
+}
+
+.studio-workspace .hover\:bg-neutral-800:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+}
+
+.studio-workspace .hover\:bg-gray-50:hover {
+  background-color: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.studio-workspace .bg-red-50 {
+  background-color: rgba(239, 68, 68, 0.12);
+  color: #fca5a5;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.studio-workspace .border-dashed {
+  background-color: rgba(255, 255, 255, 0.02);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.studio-workspace .border-gray-100 {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Dropdowns, modals, and nested surfaces */
+.studio-workspace .shadow-lg {
+  box-shadow:
+    0 16px 48px rgba(0, 0, 0, 0.55),
+    var(--studio-glass-inset);
+}
+
+.studio-workspace .ring-1 {
+  --tw-ring-color: rgba(255, 255, 255, 0.08);
+}
+
+/* Popover / listbox panels: frosted but opaque enough that page text never bleeds through */
+.studio-workspace .studio-dropdown-panel {
+  isolation: isolate;
+  background-color: rgba(10, 10, 10, 0.94) !important;
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  border-color: rgba(255, 255, 255, 0.16) !important;
+  box-shadow:
+    0 24px 64px rgba(0, 0, 0, 0.7),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.studio-workspace .studio-dropdown-panel .bg-white,
+.studio-workspace .studio-dropdown-panel .sticky.bg-white {
+  background-color: rgba(14, 14, 14, 0.98) !important;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+
+.studio-workspace .studio-dropdown-panel button:hover,
+.studio-workspace .studio-dropdown-panel .hover\:bg-white:hover {
+  background-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+.studio-workspace .studio-dropdown-panel button:focus-visible {
+  outline: none;
+  background-color: rgba(255, 255, 255, 0.12);
+}
+
+.studio-workspace section.rounded-xl,
+.studio-workspace article.rounded-xl,
+.studio-workspace aside.rounded-xl,
+.studio-workspace header.rounded-xl {
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+}
+
+.studio-workspace .rounded-xl.border-border,
+.studio-workspace .rounded-2xl.border-border {
+  border-color: var(--studio-glass-border);
+}
+
+/* —— Motion —— */
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(28px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes hero-word {
+  from {
+    opacity: 0;
+    transform: translateY(12%) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes soft-float {
+
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+@keyframes ken-burns {
+  0% {
+    transform: scale(1.05);
+  }
+
+  100% {
+    transform: scale(1.14);
+  }
+}
+
+@keyframes nav-in {
+  from {
+    opacity: 0;
+    transform: translateY(-12px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-nav {
+  animation: nav-in 0.7s ease-out both;
+}
+
+.animate-hero-word {
+  animation: hero-word 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.animate-hero-word-delay-1 {
+  animation-delay: 0.12s;
+}
+
+.animate-hero-word-delay-2 {
+  animation-delay: 0.28s;
+}
+
+.animate-hero-word-delay-3 {
+  animation-delay: 0.44s;
+}
+
+.animate-fade-in {
+  animation: fade-in 1s ease-out both;
+}
+
+.animate-soft-float {
+  animation: soft-float 5s ease-in-out infinite;
+}
+
+.video-ken-burns {
+  animation: ken-burns 28s ease-in-out infinite alternate;
+}
+
+.reveal {
+  opacity: 0;
+  transform: translateY(28px);
+  transition:
+    opacity 0.8s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.reveal.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.reveal-delay-1 {
+  transition-delay: 0.1s;
+}
+
+.reveal-delay-2 {
+  transition-delay: 0.2s;
+}
+
+.reveal-delay-3 {
+  transition-delay: 0.3s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .animate-nav,
+  .animate-hero-word,
+  .animate-fade-in,
+  .animate-soft-float,
+  .video-ken-burns {
+    animation: none !important;
+  }
+
+  .reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
