@@ -1,6 +1,13 @@
 # CoreLabs Frontend — EC2 deploy
 
-This repo deploys the static Vite build to EC2 via `.github/workflows/deploy-ec2.yml`.
+| Role | URL |
+|------|-----|
+| **Frontend (this repo)** | https://studios.corelabs.it.com/ |
+| **API (backend repo)** | https://api.studios.corelabs.it.com/api/v1 |
+
+The frontend is a static SPA. It calls the API using `VITE_STUDIO_API_URL` baked in at build time — **not** via nginx proxy on the frontend host.
+
+---
 
 ## Repo layout
 
@@ -8,98 +15,56 @@ This repo deploys the static Vite build to EC2 via `.github/workflows/deploy-ec2
 corelabs-frontend/
 ├── .github/workflows/deploy-ec2.yml
 ├── deploy/ec2/
-│   ├── activate-frontend.sh   # symlink release + nginx site + reload
-│   ├── install-nginx.sh       # SPA + /api proxy to local backend
+│   ├── activate-frontend.sh
+│   ├── ensure-ssl.sh
+│   ├── install-nginx.sh       # SPA only + HTTPS for studios.corelabs.it.com
 │   └── README.md
 └── src/
 ```
 
-Backend API deploy lives in the **corelabs-backend** repo. Both repos can target the same EC2 host and `/opt/corelabs` paths.
+---
+
+## DNS
+
+| Type | Name | Points to |
+|------|------|-----------|
+| A | `studios.corelabs.it.com` | Frontend EC2 public IP |
+
+The API subdomain (`api.studios.corelabs.it.com`) is configured in **corelabs-backend**.
 
 ---
 
-## One-time EC2 setup
+## GitHub variables (frontend repo)
 
-On your EC2 instance (Ubuntu 22.04+ or Amazon Linux 2023):
+| Variable | Value |
+|----------|--------|
+| `VITE_STUDIO_API_URL` | `https://api.studios.corelabs.it.com/api/v1` |
+| `STUDIO_FRONTEND_DOMAIN` | `studios.corelabs.it.com` (optional — default) |
+| `STUDIO_SSL_EMAIL` | Let's Encrypt contact email |
 
-**Ubuntu**
+Secrets: `EC2_HOST`, `EC2_USER`, `EC2_SSH_KEY`, Firebase `VITE_*` secrets — see workflow file.
+
+---
+
+## One-time EC2 setup (frontend server)
 
 ```bash
-sudo apt update && sudo apt install -y nginx rsync
-sudo mkdir -p /opt/corelabs/{releases,current,scripts/frontend}
+sudo apt update && sudo apt install -y nginx rsync certbot   # or dnf on Amazon Linux
+sudo mkdir -p /opt/corelabs/{releases,current,scripts/frontend} /var/www/certbot
 sudo chown -R "$USER":"$USER" /opt/corelabs
 sudo systemctl enable nginx
-```
 
-**Amazon Linux 2023**
-
-```bash
-sudo dnf install -y nginx rsync
-sudo mkdir -p /opt/corelabs/{releases,current,scripts/frontend}
-sudo chown -R "$USER":"$USER" /opt/corelabs
-sudo systemctl enable nginx
-sudo systemctl start nginx
-```
-
-Nginx config is written to `/etc/nginx/conf.d/` on Amazon Linux and `/etc/nginx/sites-available/` on Ubuntu.
-
-Open security group ports: **22** (SSH), **80** (HTTP), **443** (HTTPS if using TLS later).
-
-Allow the deploy SSH user to reload nginx without a password prompt:
-
-```bash
 sudo tee /etc/sudoers.d/corelabs-deploy > /dev/null <<'EOF'
-ubuntu ALL=(ALL) NOPASSWD: /usr/sbin/nginx, /bin/systemctl
+ubuntu ALL=(ALL) NOPASSWD: /usr/sbin/nginx, /bin/systemctl, /usr/bin/certbot
 EOF
 sudo chmod 440 /etc/sudoers.d/corelabs-deploy
 ```
 
-Replace `ubuntu` with your `EC2_USER` if different.
-
-Deploy the backend once from **corelabs-backend** before expecting `/api/` proxy routes to work.
-
----
-
-## GitHub configuration
-
-### Secrets
-
-| Secret | Description |
-|--------|-------------|
-| `EC2_HOST` | Public IP or DNS of the EC2 instance |
-| `EC2_USER` | SSH user (`ubuntu` on Ubuntu AMI) |
-| `EC2_SSH_KEY` | Full private key PEM for that user |
-| `VITE_FIREBASE_API_KEY` | Firebase web API key |
-| `VITE_FIREBASE_MESSAGING_SENDER_ID` | Firebase sender ID |
-| `VITE_FIREBASE_APP_ID` | Firebase app ID |
-
-### Variables
-
-| Variable | Example |
-|----------|---------|
-| `VITE_STUDIO_API_URL` | `https://studio.yourdomain.com/api/v1` |
-| `VITE_FIREBASE_AUTH_DOMAIN` | `your-project.firebaseapp.com` |
-| `VITE_FIREBASE_PROJECT_ID` | `your-project-id` |
-| `VITE_FIREBASE_STORAGE_BUCKET` | `your-project.firebasestorage.app` |
-| `EC2_DEPLOY_ROOT` | `/opt/corelabs` (optional) |
-| `VITE_APP_NAME` | `CoreLabsStudio` (optional) |
-
-Create a **GitHub Environment** named `production` if you want approval gates before deploy.
+Open ports **22**, **80**, **443**.
 
 ---
 
 ## What the pipeline does
 
-1. **Build** — `npm ci`, `npm run build` with `VITE_*` env baked into the bundle
-2. **Deploy** (main / manual only, not PRs):
-   - Rsync `dist/` to `/opt/corelabs/releases/frontend-<sha>/frontend/`
-   - Rsync `deploy/ec2/` to `/opt/corelabs/scripts/frontend/`
-   - Run `activate-frontend.sh` (symlink `current/frontend`, update nginx, reload)
-
----
-
-## Local smoke test
-
-```bash
-npm ci && npm run build
-```
+1. Build Vite bundle with `VITE_STUDIO_API_URL=https://api.studios.corelabs.it.com/api/v1`
+2. Rsync to EC2, symlink `current/frontend`, configure nginx + Let's Encrypt for **studios.corelabs.it.com** only

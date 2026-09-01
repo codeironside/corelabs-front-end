@@ -2,10 +2,12 @@
 set -euo pipefail
 
 DEPLOY_ROOT="${DEPLOY_ROOT:-/opt/corelabs}"
-BACKEND_PORT="${BACKEND_PORT:-4005}"
-SERVER_NAME="${STUDIO_SERVER_NAME:-_}"
+FRONTEND_DOMAIN="${STUDIO_FRONTEND_DOMAIN:-${STUDIO_SERVER_NAME:-studios.corelabs.it.com}}"
 CURRENT_FRONTEND="${DEPLOY_ROOT}/current/frontend"
-SITE_NAME="corelabs-studio.conf"
+SITE_NAME="corelabs-frontend.conf"
+SSL_CERT="/etc/letsencrypt/live/${FRONTEND_DOMAIN}/fullchain.pem"
+SSL_KEY="/etc/letsencrypt/live/${FRONTEND_DOMAIN}/privkey.pem"
+CERTBOT_WEBROOT="/var/www/certbot"
 
 if ! command -v nginx >/dev/null 2>&1; then
   echo "nginx is not installed on this host." >&2
@@ -14,42 +16,79 @@ if ! command -v nginx >/dev/null 2>&1; then
   exit 1
 fi
 
-write_site_config() {
+ssl_enabled() {
+  [[ -f "${SSL_CERT}" && -f "${SSL_KEY}" ]]
+}
+
+spa_locations() {
+  cat <<EOF
+    location / {
+        try_files \$uri \$uri/ /index.html;
+    }
+EOF
+}
+
+write_http_bootstrap_config() {
   local target_path="$1"
   sudo tee "${target_path}" > /dev/null <<EOF
 server {
     listen 80;
-    server_name ${SERVER_NAME};
+    server_name ${FRONTEND_DOMAIN};
 
     root ${CURRENT_FRONTEND};
     index index.html;
 
-    client_max_body_size 64m;
-
-    location /api/ {
-        proxy_pass http://127.0.0.1:${BACKEND_PORT}/api/;
-        proxy_http_version 1.1;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
+    location /.well-known/acme-challenge/ {
+        root ${CERTBOT_WEBROOT};
     }
 
-    location /socket.io/ {
-        proxy_pass http://127.0.0.1:${BACKEND_PORT}/socket.io/;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host \$host;
+$(spa_locations)
+}
+EOF
+}
+
+write_ssl_config() {
+  local target_path="$1"
+  sudo tee "${target_path}" > /dev/null <<EOF
+server {
+    listen 80;
+    server_name ${FRONTEND_DOMAIN};
+
+    location /.well-known/acme-challenge/ {
+        root ${CERTBOT_WEBROOT};
     }
 
     location / {
-        try_files \$uri \$uri/ /index.html;
+        return 301 https://\$host\$request_uri;
     }
 }
+
+server {
+    listen 443 ssl http2;
+    server_name ${FRONTEND_DOMAIN};
+
+    ssl_certificate ${SSL_CERT};
+    ssl_certificate_key ${SSL_KEY};
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+
+    root ${CURRENT_FRONTEND};
+    index index.html;
+
+$(spa_locations)
+}
 EOF
+}
+
+write_site_config() {
+  local target_path="$1"
+  if ssl_enabled; then
+    write_ssl_config "${target_path}"
+  else
+    write_http_bootstrap_config "${target_path}"
+  fi
 }
 
 if [[ -d /etc/nginx/conf.d ]] && [[ ! -d /etc/nginx/sites-available ]]; then
@@ -65,4 +104,8 @@ else
   sudo rm -f /etc/nginx/sites-enabled/default
 fi
 
-echo "Wrote nginx site config to ${SITE_PATH}"
+if ssl_enabled; then
+  echo "Wrote HTTPS nginx site config for ${FRONTEND_DOMAIN} at ${SITE_PATH}"
+else
+  echo "Wrote HTTP bootstrap nginx site config for ${FRONTEND_DOMAIN} at ${SITE_PATH}"
+fi
