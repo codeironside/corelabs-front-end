@@ -20,13 +20,28 @@ Backend API deploy lives in the **corelabs-backend** repo. Both repos can target
 
 ## One-time EC2 setup
 
-On your EC2 instance (Ubuntu 22.04+ recommended):
+On your EC2 instance (Ubuntu 22.04+ or Amazon Linux 2023):
+
+**Ubuntu**
 
 ```bash
 sudo apt update && sudo apt install -y nginx rsync
 sudo mkdir -p /opt/corelabs/{releases,current,scripts/frontend}
 sudo chown -R "$USER":"$USER" /opt/corelabs
+sudo systemctl enable nginx
 ```
+
+**Amazon Linux 2023**
+
+```bash
+sudo dnf install -y nginx rsync
+sudo mkdir -p /opt/corelabs/{releases,current,scripts/frontend}
+sudo chown -R "$USER":"$USER" /opt/corelabs
+sudo systemctl enable nginx
+sudo systemctl start nginx
+```
+
+Nginx config is written to `/etc/nginx/conf.d/` on Amazon Linux and `/etc/nginx/sites-available/` on Ubuntu.
 
 Open security group ports: **22** (SSH), **80** (HTTP), **443** (HTTPS if using TLS later).
 

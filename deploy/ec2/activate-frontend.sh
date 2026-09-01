@@ -20,6 +20,7 @@ export DEPLOY_ROOT BACKEND_PORT
 bash "${SCRIPT_DIR}/install-nginx.sh"
 
 sudo nginx -t
-sudo systemctl reload nginx
+sudo systemctl enable nginx 2>/dev/null || true
+sudo systemctl restart nginx
 
 echo "Activated frontend release ${RELEASE_ID} at ${DEPLOY_ROOT}"
