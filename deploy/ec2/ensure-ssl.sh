@@ -6,7 +6,11 @@ SSL_EMAIL="${STUDIO_SSL_EMAIL:-}"
 CERTBOT_WEBROOT="/var/www/certbot"
 SSL_CERT="/etc/letsencrypt/live/${FRONTEND_DOMAIN}/fullchain.pem"
 
-if [[ -f "${SSL_CERT}" ]]; then
+ssl_cert_present() {
+  sudo /usr/bin/test -f "$1"
+}
+
+if ssl_cert_present "${SSL_CERT}"; then
   if command -v certbot >/dev/null 2>&1; then
     sudo certbot renew --quiet --no-random-sleep-on-renew 2>/dev/null || true
   fi
@@ -49,11 +53,5 @@ sudo certbot certonly \
   --non-interactive \
   --no-eff-email \
   --keep-until-expiring
-
-if [[ ! -f "${SSL_CERT}" ]]; then
-  echo "Certbot finished but certificate was not created for ${FRONTEND_DOMAIN}." >&2
-  echo "Verify DNS A/AAAA for ${FRONTEND_DOMAIN} points to this EC2 instance and port 80 is open." >&2
-  exit 1
-fi
 
 echo "Issued SSL certificate for ${FRONTEND_DOMAIN}"

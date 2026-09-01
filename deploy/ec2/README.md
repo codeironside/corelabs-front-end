@@ -55,7 +55,7 @@ sudo chown -R "$USER":"$USER" /opt/corelabs
 sudo systemctl enable nginx
 
 sudo tee /etc/sudoers.d/corelabs-deploy > /dev/null <<'EOF'
-ubuntu ALL=(ALL) NOPASSWD: /usr/sbin/nginx, /bin/systemctl, /usr/bin/certbot
+ubuntu ALL=(ALL) NOPASSWD: /usr/sbin/nginx, /bin/systemctl, /usr/bin/certbot, /usr/bin/test
 EOF
 sudo chmod 440 /etc/sudoers.d/corelabs-deploy
 ```

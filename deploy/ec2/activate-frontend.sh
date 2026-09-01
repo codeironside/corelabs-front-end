@@ -26,7 +26,7 @@ sudo systemctl restart nginx
 
 bash "${SCRIPT_DIR}/ensure-ssl.sh"
 
-if [[ -f "/etc/letsencrypt/live/${STUDIO_FRONTEND_DOMAIN}/fullchain.pem" ]]; then
+if sudo /usr/bin/test -f "/etc/letsencrypt/live/${STUDIO_FRONTEND_DOMAIN}/fullchain.pem"; then
   bash "${SCRIPT_DIR}/install-nginx.sh"
   sudo nginx -t
   sudo systemctl restart nginx

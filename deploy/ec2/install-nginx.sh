@@ -16,8 +16,12 @@ if ! command -v nginx >/dev/null 2>&1; then
   exit 1
 fi
 
+ssl_cert_present() {
+  sudo /usr/bin/test -f "$1"
+}
+
 ssl_enabled() {
-  [[ -f "${SSL_CERT}" && -f "${SSL_KEY}" ]]
+  ssl_cert_present "${SSL_CERT}" && ssl_cert_present "${SSL_KEY}"
 }
 
 spa_locations() {
