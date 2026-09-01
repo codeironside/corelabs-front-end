@@ -1,4 +1,4 @@
-﻿import { useMemo, useRef, useState, type PointerEvent, type ReactNode } from 'react';
+import { useMemo, useRef, useState, type PointerEvent, type ReactNode } from 'react';
 import { Clock3, FastForward, GripVertical, Layers3, Music2, Plus, RefreshCcw, Scissors, SlidersHorizontal, Sparkles, Trash2, Volume2, VolumeX, Wand2 } from 'lucide-react';
 import type { EpisodeSceneCard } from '../storyboard';
 import { sceneHasReadyTts, sceneIsGeneratingTts } from '../sceneTts';
@@ -228,7 +228,7 @@ export function TimelineEngine({
         </div>
       </div>
 
-      <div className="mt-4 overflow-x-auto pb-3">
+      <div className="studio-horizontal-scroll mt-4 pb-3">
         <div ref={timelineRef} className="relative min-w-max" style={{ width: labelWidth + timelinePixelWidth }}>
           <div
             className="absolute bottom-3 top-0 z-20 w-1 cursor-ew-resize rounded-full bg-[var(--color-faded-copper)] transition-[left] duration-100"

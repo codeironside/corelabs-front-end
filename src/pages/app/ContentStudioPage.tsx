@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ElementType } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
+import toast from 'react-hot-toast';
 import {
   BarChart3,
   ChevronLeft,
@@ -10,11 +11,13 @@ import {
   Layers3,
   Library,
   ListChecks,
+  Menu,
   Palette,
   PlaySquare,
   PlugZap,
   ScrollText,
   Sparkles,
+  X,
 } from 'lucide-react';
 import { listContentModules, listThemes } from '@/api/content';
 import { useAuthStore } from '@/store/authStore';
@@ -25,6 +28,7 @@ import { StoriesEditor } from '@/pages/dashboard/StoriesEditor';
 import { StudioCommandCenter } from '@/pages/app/StudioCommandCenter';
 import { StudioPipelinePanel } from '@/pages/app/StudioPipelinePanel';
 import { StudioPerformancePanel } from '@/pages/app/StudioPerformancePanel';
+import { StudioIntegrationsPanel } from '@/pages/app/StudioIntegrationsPanel';
 
 type StudioTab =
   | 'command'
@@ -94,6 +98,7 @@ export function ContentStudioPage(): React.JSX.Element {
       return false;
     }
   });
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const tabParam = searchParams.get('studioTab') as StudioTab | null;
   const legacyTab = searchParams.get('tab') === 'stories' ? 'stories' : null;
@@ -119,13 +124,18 @@ export function ContentStudioPage(): React.JSX.Element {
   }, [searchParams, setSearchParams]);
 
   useEffect(() => {
-    const connected =
-      searchParams.get('youtube') === 'connected' ||
-      searchParams.get('tiktok') === 'connected' ||
-      searchParams.get('instagram') === 'connected';
-    if (!connected) {
+    const connectedPlatform =
+      searchParams.get('youtube') === 'connected'
+        ? 'YouTube'
+        : searchParams.get('tiktok') === 'connected'
+          ? 'TikTok'
+          : searchParams.get('instagram') === 'connected'
+            ? 'Instagram'
+            : null;
+    if (!connectedPlatform) {
       return;
     }
+    toast.success(`${connectedPlatform} connected.`);
     const next = new URLSearchParams(searchParams);
     next.delete('youtube');
     next.delete('tiktok');
@@ -160,6 +170,7 @@ export function ContentStudioPage(): React.JSX.Element {
     next.delete('tab');
     next.set('studioTab', tab);
     setSearchParams(next);
+    setMobileNavOpen(false);
   }
 
   const navButtonClass = (isActive: boolean, collapsed: boolean): string =>
@@ -175,10 +186,19 @@ export function ContentStudioPage(): React.JSX.Element {
 
   return (
     <div className="studio-workspace min-h-screen bg-black px-4 py-6 text-white md:px-6">
-      <div className="mx-auto max-w-[1600px] space-y-6">
+      <div className="studio-fluid-shell space-y-6">
         <header className={`${shellSurfaceClass} p-5`}>
-          <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-            <div>
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div className="flex items-start gap-3">
+              <button
+                type="button"
+                onClick={() => setMobileNavOpen(true)}
+                className="studio-touch-target studio-glass-subtle inline-flex shrink-0 items-center justify-center rounded-lg border border-white/15 text-white md:hidden"
+                aria-label="Open studio navigation"
+              >
+                <Menu size={20} />
+              </button>
+              <div>
               <div className="studio-glass-subtle mb-3 inline-flex items-center gap-2 rounded-full border border-white/15 px-3 py-1 text-[10px] font-semibold tracking-[0.18em] text-white/60 uppercase">
                 <ActiveIcon size={12} /> CoreLabsStudio
               </div>
@@ -187,8 +207,9 @@ export function ContentStudioPage(): React.JSX.Element {
                 Manage themes, modules, the approval-gated generation pipeline, and publishing from one workspace.
                 {user ? ` Signed in as ${user.email}.` : null}
               </p>
+              </div>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="studio-pill-row">
               <Link
                 to="/"
                 className="inline-flex items-center justify-center rounded-full border border-white/15 bg-white/5 px-4 py-2.5 text-sm text-white/65 backdrop-blur-md transition-colors hover:border-white/35 hover:bg-white/10 hover:text-white"
@@ -205,14 +226,14 @@ export function ContentStudioPage(): React.JSX.Element {
               <button
                 type="button"
                 onClick={() => setTab('episodes')}
-                className="inline-flex items-center justify-center gap-2 rounded-full border border-white/15 bg-white/5 px-5 py-2.5 text-sm font-semibold text-white/80 backdrop-blur-md transition-colors hover:border-white/35 hover:bg-white/10 hover:text-white"
+                className="studio-touch-target-inline inline-flex items-center justify-center gap-2 rounded-full border border-white/15 bg-white/5 px-5 py-2.5 text-sm font-semibold text-white/80 backdrop-blur-md transition-colors hover:border-white/35 hover:bg-white/10 hover:text-white"
               >
                 <PlaySquare size={16} /> Episodes
               </button>
               <button
                 type="button"
                 onClick={logout}
-                className="inline-flex items-center justify-center rounded-full border border-white/15 bg-white/5 px-4 py-2.5 text-sm text-white/65 backdrop-blur-md transition-colors hover:border-white/35 hover:bg-white/10 hover:text-white"
+                className="studio-touch-target-inline inline-flex items-center justify-center rounded-full border border-white/15 bg-white/5 px-4 py-2.5 text-sm text-white/65 backdrop-blur-md transition-colors hover:border-white/35 hover:bg-white/10 hover:text-white"
               >
                 Sign out
               </button>
@@ -220,8 +241,32 @@ export function ContentStudioPage(): React.JSX.Element {
           </div>
         </header>
 
-        <nav className={`overflow-x-auto ${shellSurfaceClass} p-2 md:hidden`}>
-          <div className="flex min-w-max gap-1">
+        {mobileNavOpen ? (
+          <button
+            type="button"
+            className="studio-drawer-backdrop md:hidden"
+            aria-label="Close studio navigation"
+            onClick={() => setMobileNavOpen(false)}
+          />
+        ) : null}
+
+        <aside
+          className={`studio-drawer-panel studio-glass md:hidden ${mobileNavOpen ? '' : ''}`}
+          data-closed={mobileNavOpen ? 'false' : 'true'}
+          aria-hidden={!mobileNavOpen}
+        >
+          <div className="mb-4 flex items-center justify-between gap-2">
+            <p className="text-sm font-semibold text-white">Studio navigation</p>
+            <button
+              type="button"
+              onClick={() => setMobileNavOpen(false)}
+              className="studio-touch-target inline-flex items-center justify-center rounded-lg border border-white/15 text-white/80"
+              aria-label="Close navigation drawer"
+            >
+              <X size={18} />
+            </button>
+          </div>
+          <nav className="space-y-1">
             {TABS.map(({ id, label, icon: Icon }) => (
               <button
                 key={id}
@@ -230,11 +275,11 @@ export function ContentStudioPage(): React.JSX.Element {
                 className={navButtonClass(activeTab === id, false)}
               >
                 <Icon size={15} />
-                {label}
+                <span className="truncate">{label}</span>
               </button>
             ))}
-          </div>
-        </nav>
+          </nav>
+        </aside>
 
         <div className="flex items-start gap-4">
           <aside
@@ -292,13 +337,7 @@ export function ContentStudioPage(): React.JSX.Element {
               />
             )}
             {activeTab === 'performance' && <StudioPerformancePanel />}
-            {activeTab === 'integrations' && (
-              <ComingOnlinePanel
-                title="Integrations"
-                body="YouTube, TikTok, and Instagram publishing connections."
-                icon={PlugZap}
-              />
-            )}
+            {activeTab === 'integrations' && <StudioIntegrationsPanel />}
           </div>
         </div>
       </div>

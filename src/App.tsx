@@ -51,7 +51,8 @@ export function App(): React.JSX.Element {
         </Routes>
       </BrowserRouter>
       <Toaster
-        position="bottom-right"
+        position="top-center"
+        containerStyle={{ top: 16 }}
         toastOptions={{
           style: {
             background: '#171717',

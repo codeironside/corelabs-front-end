@@ -1,8 +1,6 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState, type ElementType, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import {
   AlertTriangle,
   AlignCenter,
@@ -19,7 +17,6 @@ import {
   ImageIcon,
   Layers3,
   Loader2,
-  LockKeyhole,
   MonitorPlay,
   Palette,
   PencilLine,
@@ -36,7 +33,6 @@ import {
   Wand2,
 } from 'lucide-react';
 import {
-  buildEmptySceneBoard,
   episodeSourceRequirementsMet,
   resolveEpisodeGenerationContext,
   resolveSceneVideoGenerationContext,
@@ -47,6 +43,7 @@ import {
 import { playEpisodeAudio } from './content-episodes/episodeAudioPlayback';
 import { episodeSceneCardFromDoc, mergeSceneMediaFromDoc, sceneDocEpisodeKey, shouldApplySceneDocToCard } from './content-episodes/sceneMediaState';
 import { ProtectedStudioVideo } from './content-episodes/ProtectedStudioVideo';
+import { ProtectedStudioImage } from './content-episodes/ProtectedStudioImage';
 import { studioStreamMediaUrl } from './content-episodes/studioMediaUrl';
 import {
   buildSceneCards,
@@ -86,12 +83,13 @@ import {
   updateSceneTtsLine,
   type EpisodeSceneTtsLine,
 } from './content-episodes/sceneTts';
+import { EpisodePipelineFlow } from './content-episodes/EpisodePipelineFlow';
+import { createEpisodeWorkspaceKey } from './content-episodes/episodeWorkspace';
 import { VideoEditorWorkspace } from './content-episodes/video-editor/VideoEditorWorkspace';
 import {
   generateEpisodeImage as generateEpisodeImageRequest,
   generateEpisodeMedia as generateEpisodeMediaRequest,
   generateEpisodeSceneVideo as generateEpisodeSceneVideoRequest,
-  generateEpisodeScript as generateEpisodeScriptRequest,
   generateEpisodeTts as generateEpisodeTtsRequest,
   getContentStudioDraft,
   getContentEpisode,
@@ -126,9 +124,7 @@ import { assignDedicatedLane } from './content-episodes/video-editor/audioLaneLa
 type GenerationMode = 'text' | 'media';
 type IntroSource = 'upload' | 'ai';
 type ReviewState = 'idle' | 'generating' | 'ready' | 'editing' | 'queued';
-type ScriptState = 'idle' | 'generating' | 'ready';
 type ScriptWorkflow = EpisodeScriptWorkflow;
-type ScriptView = 'edit' | 'preview';
 type OverlayAlign = 'left' | 'center' | 'right';
 type ModelUse = 'text' | 'image' | 'video' | 'audio';
 type PublishPlatform = 'youtube' | 'tiktok' | 'instagram';
@@ -188,7 +184,8 @@ const FONT_OPTIONS: SelectOption<string>[] = [
   { value: 'Arial', label: 'Arial' },
 ];
 
-const TARGET_DURATION_OPTIONS = [30, 60, 90];
+const TARGET_DURATION_OPTIONS = [60, 300, 600, 1800, 3600, 7200];
+const MAX_EPISODE_DURATION_SEC = 7200;
 
 const PLATFORM_TAGS = [
   { needle: 'youtube', label: 'Official Studio YouTube' },
@@ -208,6 +205,7 @@ const EPISODE_MODULE_SESSION_KEY = 'content-studio-episode-module-id';
 const PROVIDER_ORDER: AiModelOption['provider'][] = ['openai', 'anthropic', 'google', 'xai', 'kling', 'elevenlabs'];
 type EpisodeCanvasDraft = {
   moduleId: string;
+  episodeWorkspaceKey: string;
   title: string;
   basePrompt: string;
   mode: GenerationMode;
@@ -378,11 +376,15 @@ export function ContentEpisodes() {
   });
 
   const [moduleId, setModuleId] = useState('');
+  const [episodeWorkspaceKey, setEpisodeWorkspaceKey] = useState(() => createEpisodeWorkspaceKey());
   const [title, setTitle] = useState('');
   const [basePrompt, setBasePrompt] = useState('');
   const [mode, setMode] = useState<GenerationMode>('media');
   const [duration, setDuration] = useState(30);
   const [extendedCut, setExtendedCut] = useState(false);
+  const [episodeAudioFinalized, setEpisodeAudioFinalized] = useState(false);
+  const [committedScenePage, setCommittedScenePage] = useState(0);
+  const COMMITTED_SCENE_PAGE_SIZE = 12;
   const [soundEnabled, setSoundEnabled] = useState(false);
   const [textModel, setTextModel] = useState('');
   const [imageModel, setImageModel] = useState('');
@@ -409,8 +411,6 @@ export function ContentEpisodes() {
   const [overlayY, setOverlayY] = useState(82);
   const [overlayOpacity, setOverlayOpacity] = useState(70);
   const [scriptWorkflow, setScriptWorkflow] = useState<ScriptWorkflow>('direct');
-  const [scriptState, setScriptState] = useState<ScriptState>('idle');
-  const [scriptView, setScriptView] = useState<ScriptView>('edit');
   const [scriptDraft, setScriptDraft] = useState('');
   const [scriptApproved, setScriptApproved] = useState(false);
   const [selectedCharacterRefIds, setSelectedCharacterRefIds] = useState<string[]>([]);
@@ -421,9 +421,6 @@ export function ContentEpisodes() {
   const [sceneAudioMuted, setSceneAudioMuted] = useState<Record<string, boolean>>({});
   const [timelineAudioLayers, setTimelineAudioLayers] = useState<TimelineAudioLayer[]>([]);
   const [timelineBrollLayers, setTimelineBrollLayers] = useState<TimelineBrollLayer[]>([]);
-  const [mentionOpen, setMentionOpen] = useState(false);
-  const [mentionQuery, setMentionQuery] = useState('');
-  const [mentionRange, setMentionRange] = useState({ start: 0, end: 0 });
   const [imageMentionOpen, setImageMentionOpen] = useState(false);
   const [imageMentionQuery, setImageMentionQuery] = useState('');
   const [imageMentionRange, setImageMentionRange] = useState({ start: 0, end: 0 });
@@ -487,7 +484,16 @@ export function ContentEpisodes() {
       setThumbnailPreviewLabel(`${modelLabel(result.model, aiModels)} preview`);
       toast.success('Episode thumbnail generated.');
     },
-    onError: () => toast.error('Could not generate episode image.'),
+    onError: (error: unknown) => {
+      const message =
+        typeof error === 'object'
+        && error !== null
+        && 'response' in error
+        && typeof (error as { response?: { data?: { message?: string } } }).response?.data?.message === 'string'
+          ? (error as { response: { data: { message: string } } }).response.data.message
+          : 'Could not generate episode image.';
+      toast.error(message);
+    },
   });
 
   const uploadImageMut = useMutation({
@@ -520,24 +526,6 @@ export function ContentEpisodes() {
       toast.success('Image prompt refined.');
     },
     onError: () => toast.error('Could not refine image prompt.'),
-  });
-
-  const generateScriptMut = useMutation({
-    mutationFn: generateEpisodeScriptRequest,
-    onSuccess: (result) => {
-      setScriptDraft(result.script);
-      const nextScenes = buildSceneCards(title, result.script || basePrompt, duration, themeCharacterMentions, voiceProfile);
-      setScenes(nextScenes);
-      inheritSceneAudioMute(nextScenes);
-      setSelectedTimelineSceneId(nextScenes[0]?.id ?? '');
-      setScriptState('ready');
-      setScriptApproved(false);
-      toast.success('Script blueprint generated with module and theme context.');
-    },
-    onError: () => {
-      setScriptState('idle');
-      toast.error('Could not generate script blueprint.');
-    },
   });
 
   const generateMediaMut = useMutation({
@@ -832,6 +820,7 @@ export function ContentEpisodes() {
         toast.error('That episode belongs to a different module.');
         return;
       }
+      setEpisodeWorkspaceKey(episode._id);
       setActiveEpisode(episode);
       setActiveEpisodeScenes(episodeScenes);
       syncSceneVideoDocs(episodeScenes, episode._id);
@@ -892,13 +881,13 @@ export function ContentEpisodes() {
 
   function startFreshEpisodeWorkspace() {
     clearActiveEpisodeRenderState();
+    setEpisodeWorkspaceKey(createEpisodeWorkspaceKey());
     setTitle('');
     setBasePrompt('');
     setScenes([]);
     setSelectedTimelineSceneId('');
     setScriptDraft('');
     setScriptApproved(false);
-    setScriptState('idle');
     setThumbnailPreviewUrl('');
     setThumbnailPreviewLabel('');
     setCommittedThumbnailUrl('');
@@ -909,6 +898,8 @@ export function ContentEpisodes() {
     setTimelineAudioLayers([]);
     setTimelineBrollLayers([]);
     setAssets([]);
+    setEpisodeAudioFinalized(false);
+    setCommittedScenePage(0);
   }
 
   function handleModuleChange(nextModuleId: string) {
@@ -942,6 +933,9 @@ export function ContentEpisodes() {
 
     if (!pendingModuleIdRef.current && draft.moduleId) {
       pendingModuleIdRef.current = draft.moduleId;
+    }
+    if (draft.episodeWorkspaceKey) {
+      setEpisodeWorkspaceKey(draft.episodeWorkspaceKey);
     }
     setTitle(draft.title ?? '');
     setBasePrompt(draft.basePrompt ?? '');
@@ -1044,10 +1038,6 @@ export function ContentEpisodes() {
     () => themeCharacterRefs.filter((reference) => selectedCharacterRefIds.includes(reference.id)),
     [selectedCharacterRefIds, themeCharacterRefs],
   );
-  const characterMentionOptions = useMemo(() => {
-    const query = mentionQuery.toLowerCase();
-    return themeCharacterMentions.filter((character) => character.handle.toLowerCase().includes(query) || character.name.toLowerCase().includes(query)).slice(0, 6);
-  }, [mentionQuery, themeCharacterMentions]);
   const imageMentionOptions = useMemo(() => {
     const query = imageMentionQuery.toLowerCase();
     return themeCharacterMentions.filter((character) => character.handle.toLowerCase().includes(query) || character.name.toLowerCase().includes(query)).slice(0, 6);
@@ -1123,6 +1113,12 @@ export function ContentEpisodes() {
   const activeFinalModel = mode === 'media' ? 'ffmpeg:timeline-render' : textModel;
   const activeFinalModelAvailable = mode === 'media' ? true : Boolean(textModel);
   const targetSceneCount = sceneCountForDuration(duration);
+  const episodeAudioTimelineUrl = timelineAudioLayers.find((layer) => layer.url)?.url;
+  const committedScenePages = Math.max(1, Math.ceil(scenes.length / COMMITTED_SCENE_PAGE_SIZE));
+  const visibleCommittedScenes = scenes.slice(
+    committedScenePage * COMMITTED_SCENE_PAGE_SIZE,
+    (committedScenePage + 1) * COMMITTED_SCENE_PAGE_SIZE,
+  );
   const allScenesApproved = scenes.length > 0 && scenes.every((scene) => scene.approved);
   const allSceneVideosReady = mode !== 'media' || (scenes.length > 0 && scenes.every((scene) => {
     const status = scene.sceneVideoStatus ?? 'idle';
@@ -1283,29 +1279,6 @@ export function ContentEpisodes() {
     ]);
   }
 
-  function handleScriptDraftChange(value: string, caret: number) {
-    setScriptDraft(value);
-    setScriptApproved(false);
-    const beforeCaret = value.slice(0, caret);
-    const mentionMatch = beforeCaret.match(/(^|\s)@([\w-]*)$/);
-    if (!mentionMatch) {
-      setMentionOpen(false);
-      setMentionQuery('');
-      return;
-    }
-    const query = mentionMatch[2] ?? '';
-    setMentionOpen(true);
-    setMentionQuery(query);
-    setMentionRange({ start: caret - query.length - 1, end: caret });
-  }
-
-  function insertCharacterMention(handle: string) {
-    setScriptDraft((current) => `${current.slice(0, mentionRange.start)}${handle} ${current.slice(mentionRange.end)}`);
-    setScriptApproved(false);
-    setMentionOpen(false);
-    setMentionQuery('');
-  }
-
   function handleImagePromptChange(value: string, caret: number) {
     setIntroPrompt(value);
     const beforeCaret = value.slice(0, caret);
@@ -1329,25 +1302,6 @@ export function ContentEpisodes() {
 
   function toggleCharacterReference(referenceId: string) {
     setSelectedCharacterRefIds((current) => (current.includes(referenceId) ? current.filter((id) => id !== referenceId) : [...current, referenceId]));
-  }
-
-  function handleConvertIdeaToScenes() {
-    const nextScenes = buildSceneCards(title, basePrompt, duration, themeCharacterMentions, voiceProfile);
-    setScenes(nextScenes);
-    inheritSceneAudioMute(nextScenes);
-    setSelectedTimelineSceneId(nextScenes[0]?.id ?? '');
-    setScriptDraft(nextScenes.map((scene) => `### Scene ${scene.sceneNumber}: ${timestamp(scene.startSec)} - ${timestamp(scene.endSec)}\n\n${scene.voiceOver}\n\n${scene.visualPrompt}`).join('\n\n'));
-    setScriptApproved(false);
-    toast.success(`Storyboard created as ${nextScenes.length} 10-second scenes.`);
-  }
-
-  function handleInitializeSceneBoard() {
-    const nextScenes = buildEmptySceneBoard(duration, themeCharacterMentions, voiceProfile);
-    setScenes(nextScenes);
-    inheritSceneAudioMute(nextScenes);
-    setSelectedTimelineSceneId(nextScenes[0]?.id ?? '');
-    setScriptApproved(false);
-    toast.success(`Initialized ${nextScenes.length} empty scene cards. Write each scene directlyΓÇöno base-prompt script conversion.`);
   }
 
   function updateScene(sceneId: string, patch: Partial<EpisodeSceneCard>) {
@@ -1487,18 +1441,6 @@ export function ContentEpisodes() {
 
   function updateSceneAudioMuted(sceneId: string, muted: boolean) {
     setSceneAudioMuted((current) => ({ ...current, [sceneId]: muted }));
-  }
-
-  function sceneAudioMutedByDefault() {
-    return scenes.length > 0 && scenes.every((scene) => sceneAudioMuted[scene.id]);
-  }
-
-  function inheritSceneAudioMute(nextScenes: EpisodeSceneCard[]) {
-    if (!sceneAudioMutedByDefault()) return;
-    setSceneAudioMuted((current) => ({
-      ...current,
-      ...Object.fromEntries(nextScenes.map((scene) => [scene.id, true])),
-    }));
   }
 
   function addTimelineAudioLayer(layer: TimelineAudioLayer) {
@@ -1848,6 +1790,7 @@ export function ContentEpisodes() {
   function episodeDraftSnapshot(): EpisodeCanvasDraft {
     return {
       moduleId,
+      episodeWorkspaceKey,
       title,
       basePrompt,
       mode,
@@ -1891,19 +1834,6 @@ export function ContentEpisodes() {
 
   function handleSaveEpisodeDraft() {
     saveEpisodeDraftMut.mutate(episodeDraftSnapshot());
-  }
-
-  function handleGenerateScript() {
-    if (!selectedModule || !title.trim() || !basePrompt.trim() || !textModel) return;
-    setScriptState('generating');
-    setScriptApproved(false);
-    generateScriptMut.mutate({
-      moduleId: selectedModule._id,
-      title: title.trim(),
-      basePrompt: basePrompt.trim(),
-      durationSeconds: duration,
-      model: textModel,
-    });
   }
 
   function handleFinalGenerate(options?: TimelineRenderOptions) {
@@ -2066,38 +1996,40 @@ export function ContentEpisodes() {
         type="button"
         onClick={handleSaveEpisodeDraft}
         disabled={saveEpisodeDraftMut.isPending}
-        className="fixed bottom-5 right-5 z-50 inline-flex items-center gap-2 rounded-full bg-[var(--color-ash-brown)] px-4 py-3 text-sm font-semibold text-[var(--color-vanilla-cream)] shadow-lg ring-1 ring-white/70 disabled:opacity-45"
+        className="studio-fab studio-touch-target inline-flex items-center gap-2 rounded-full bg-[var(--color-ash-brown)] px-4 py-3 text-sm font-semibold text-[var(--color-vanilla-cream)] shadow-lg ring-1 ring-white/70 disabled:opacity-45 lg:hidden"
       >
         {saveEpisodeDraftMut.isPending ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
         {saveEpisodeDraftMut.isPending ? 'Saving draft...' : 'Save draft'}
       </button>
       <header className="rounded-xl border border-border bg-white p-5 shadow-sm">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[var(--color-tea-green)] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--color-faded-copper)]">
-              <MonitorPlay size={12} /> Episode Generation
+              <MonitorPlay size={12} /> Social Episode Video
             </div>
             <h1 className="text-2xl font-semibold text-dark">Creator&apos;s Canvas</h1>
             <p className="mt-2 max-w-3xl text-sm leading-relaxed text-muted">
-              Move through initialization, model routing, thumbnail creation, optional script blueprinting, and final review without losing inherited module context.
+              Each episode is one social-ready video under its parent module — build the thumbnail, script scenes, stitch the final MP4, then publish to linked channels from Integrations.
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="studio-pill-row">
             <TagPill icon={Layers3} label={selectedModule?.title ?? 'Module not selected'} />
             <TagPill icon={Palette} label={selectedTheme?.title ?? 'Theme inherited from module'} />
             {platformLabels.map((label) => (
               <TagPill key={label} icon={Route} label={label} />
             ))}
-            <button type="button" onClick={handleSaveEpisodeDraft} disabled={saveEpisodeDraftMut.isPending} className="inline-flex items-center gap-1.5 rounded-full bg-[var(--color-muted-olive)] px-3 py-1.5 text-xs font-semibold text-[var(--color-vanilla-cream)] disabled:opacity-45">
+            <div className="studio-pill-row__actions">
+            <button type="button" onClick={handleSaveEpisodeDraft} disabled={saveEpisodeDraftMut.isPending} className="studio-touch-target-inline inline-flex items-center gap-1.5 rounded-full bg-[var(--color-muted-olive)] px-3 py-1.5 text-xs font-semibold text-[var(--color-vanilla-cream)] disabled:opacity-45">
               {saveEpisodeDraftMut.isPending ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
               {saveEpisodeDraftMut.isPending ? 'Saving...' : 'Save draft'}
             </button>
+            </div>
           </div>
         </div>
       </header>
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[18rem_1fr]">
-        <aside className="space-y-4">
+      <div className="studio-episode-layout">
+        <aside className="studio-episode-aside space-y-4">
           <Panel title="Context" kicker="Read-only inheritance for the active episode." icon={Layers3}>
             <div className="space-y-3">
               <div>
@@ -2187,24 +2119,25 @@ export function ContentEpisodes() {
 
         <main className="space-y-5">
           <Panel title="1. Episode Initialization & Context Inheritance" kicker="Capture the raw idea and keep inherited module, theme, and routing indicators visible." icon={FileText}>
-            <div className="grid gap-4 lg:grid-cols-2">
+            <div className="grid gap-4 md:grid-cols-2">
               <div>
                 <label className="text-xs font-medium text-muted">Episode Title</label>
                 <input className="input-field mt-1 text-sm" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Episode 04: The Lagos Launch" />
               </div>
               <div>
-                <label className="text-xs font-medium text-muted">Active Module</label>
+                <label className="text-xs font-medium text-muted">Parent Module (inherits theme)</label>
                 <div className="mt-1 rounded-xl border border-border bg-white px-3 py-3 text-sm font-semibold text-dark">{selectedModule?.title ?? 'Select from Context'}</div>
+                <p className="mt-1 text-[11px] leading-relaxed text-muted">The module supplies theme, characters, and routing. Your episode title and script in this panel drive generation.</p>
               </div>
-              <div className="lg:col-span-2">
+              <div className="md:col-span-2">
                 <label className="text-xs font-medium text-muted">Base Textual Prompt</label>
-                <textarea className="input-field mt-1 min-h-[120px] text-sm" value={basePrompt} onChange={(e) => setBasePrompt(e.target.value)} placeholder="Write the raw episode idea, conflict, lesson, product angle, or story beat." />
+                <textarea className="input-field studio-textarea mt-1 text-sm" value={basePrompt} onChange={(e) => setBasePrompt(e.target.value)} placeholder="Write the raw episode idea, conflict, lesson, product angle, or story beat." />
               </div>
             </div>
           </Panel>
 
           <Panel title="2. System Configuration & Voice Selector" kicker="Set target runtime, scene count, AI routing, and optional text-to-speech voice-over." icon={Timer}>
-            <div className="grid gap-5 xl:grid-cols-[0.8fr_1.2fr]">
+            <div className="grid gap-5 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
               <div className="space-y-3">
                 {[
                   { id: 'text' as const, label: 'Text-Only Mode', detail: 'Scripts, stories, or blog posts.', icon: FileText },
@@ -2233,17 +2166,24 @@ export function ContentEpisodes() {
                   <div className="mt-4 flex flex-wrap gap-2">
                     {TARGET_DURATION_OPTIONS.map((seconds) => (
                       <button key={seconds} type="button" disabled={mode !== 'media'} onClick={() => setDuration(seconds)} className={`rounded-lg border px-3 py-2 text-xs font-semibold disabled:opacity-40 ${duration === seconds ? 'border-[var(--color-muted-olive)] bg-[var(--color-muted-olive)] text-[var(--color-vanilla-cream)]' : 'border-border text-dark hover:border-[var(--color-muted-olive)]'}`}>
-                        {seconds}s
+                        {seconds >= 3600 ? `${seconds / 3600}h` : seconds >= 60 ? `${seconds / 60}m` : `${seconds}s`}
                       </button>
                     ))}
                   </div>
-                  <label className="mt-5 flex items-center gap-3 rounded-xl border border-border p-3 text-sm font-semibold text-dark">
-                    <input type="checkbox" checked={extendedCut} disabled={mode !== 'media'} onChange={(e) => setExtendedCut(e.target.checked)} />
-                    Extended Cut up to 1:30 / 9 scenes
+                  <label className="mt-4 block text-xs font-medium text-muted">
+                    Custom runtime (seconds, up to {MAX_EPISODE_DURATION_SEC})
+                    <input
+                      type="number"
+                      min={10}
+                      max={MAX_EPISODE_DURATION_SEC}
+                      step={10}
+                      disabled={mode !== 'media'}
+                      value={duration}
+                      onChange={(event) => setDuration(Math.min(MAX_EPISODE_DURATION_SEC, Math.max(10, Number(event.target.value) || 10)))}
+                      className="input-field mt-1 text-sm disabled:opacity-40"
+                    />
                   </label>
-                  {extendedCut && (
-                    <input type="range" min={15} max={90} value={duration} disabled={mode !== 'media'} onChange={(e) => setDuration(Number(e.target.value))} className="mt-4 w-full accent-[var(--color-muted-olive)]" />
-                  )}
+                  <p className="mt-2 text-[11px] text-muted">{targetSceneCount} ten-second scene blocks at this runtime.</p>
                   <label className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-border p-3 text-sm font-semibold text-dark">
                     <span>
                       Default scene video audio
@@ -2254,12 +2194,12 @@ export function ContentEpisodes() {
                 </div>
               </div>
 
-              <div className="grid gap-4 lg:grid-cols-4">
+              <div className="studio-model-grid">
                 <ModelSelect label="Script / Context Model" use="text" value={textModel} options={aiModels.text} onChange={setTextModel} />
                 <ModelSelect label="Image Model" use="image" value={imageModel} options={aiModels.image} onChange={setImageModel} />
                 <ModelSelect label="Video Renderer" use="video" value={videoModel} options={aiModels.video} onChange={setVideoModel} />
                 <ModelSelect label="Audio / TTS Model" use="audio" value={audioModel} options={aiModels.audio} onChange={setAudioModel} />
-                <div className="lg:col-span-4 rounded-xl border border-[var(--color-tea-green)] bg-white p-4">
+                <div className="studio-model-grid__voice rounded-xl border border-[var(--color-tea-green)] bg-white p-4">
                   <div className="flex items-start gap-3">
                     <Headphones size={17} className="mt-0.5 text-[var(--color-ash-brown)]" />
                     <div className="grid flex-1 gap-3 md:grid-cols-[1fr_auto]">
@@ -2295,6 +2235,21 @@ export function ContentEpisodes() {
                         />
                       </div>
                       <div className="md:col-span-2">
+                        <label className="flex items-start gap-3 rounded-xl border border-[var(--color-tea-green)] p-3 text-sm font-semibold text-dark">
+                          <input
+                            type="checkbox"
+                            checked={episodeAudioFinalized}
+                            onChange={(event) => setEpisodeAudioFinalized(event.target.checked)}
+                          />
+                          <span>
+                            Episode audio finalized for beat breakdown
+                            <span className="mt-0.5 block text-[11px] font-normal text-muted">
+                              Generate or place the full episode voice track on the timeline first, then mark it ready before breaking the script into timed scene beats.
+                            </span>
+                          </span>
+                        </label>
+                      </div>
+                      <div className="md:col-span-2">
                         <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">Theme character TTS presets (read-only)</p>
                         <ThemeCharacterTtsSummary
                           characters={themeCharacterMentions}
@@ -2317,9 +2272,9 @@ export function ContentEpisodes() {
               </div>
             </div>
 
-            <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
+            <div className="grid gap-5 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
               <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   {[
                     { id: 'upload' as const, label: 'Author Upload', icon: UploadCloud },
                     { id: 'ai' as const, label: 'AI Image Generator', icon: Sparkles },
@@ -2419,7 +2374,11 @@ export function ContentEpisodes() {
                                 className={`overflow-hidden rounded-lg border text-left transition ${checked ? 'border-[var(--color-muted-olive)] ring-2 ring-[var(--color-tea-green)]/60' : 'border-border hover:border-[var(--color-muted-olive)]/60'}`}
                               >
                                 <div className="aspect-square bg-[var(--color-tea-green)]/25">
-                                  <img src={reference.url} alt={reference.label} className="h-full w-full object-cover" />
+                                  <ProtectedStudioImage
+                                    originUrl={reference.url}
+                                    alt={reference.label}
+                                    className="h-full w-full object-cover"
+                                  />
                                 </div>
                                 <div className="p-2">
                                   <p className="truncate text-[10px] font-semibold text-dark">{reference.handle}</p>
@@ -2443,7 +2402,11 @@ export function ContentEpisodes() {
                         <p className="mt-3 text-xs font-semibold text-[var(--color-vanilla-cream)]">Generating episode thumbnail...</p>
                       </div>
                     ) : thumbnailPreviewUrl ? (
-                      <img src={thumbnailPreviewUrl} alt="Episode thumbnail preview" className="h-full w-full object-cover" />
+                      <ProtectedStudioImage
+                        originUrl={thumbnailPreviewUrl}
+                        alt="Episode thumbnail preview"
+                        className="h-full w-full object-cover"
+                      />
                     ) : (
                       <div className="flex h-full w-full flex-col items-center justify-center bg-[linear-gradient(135deg,#adc178,#a98467)] p-5 text-center">
                         <ImageIcon size={34} className="text-[var(--color-vanilla-cream)]" />
@@ -2466,7 +2429,11 @@ export function ContentEpisodes() {
               <div className="space-y-4">
                 <div className="relative aspect-video overflow-hidden rounded-xl border border-border bg-[var(--color-muted-olive)]">
                   {thumbnailOverlayBaseUrl ? (
-                    <img src={thumbnailOverlayBaseUrl} alt="Thumbnail overlay preview" className="h-full w-full object-cover" />
+                    <ProtectedStudioImage
+                      originUrl={thumbnailOverlayBaseUrl}
+                      alt="Thumbnail overlay preview"
+                      className="h-full w-full object-cover"
+                    />
                   ) : (
                     <div className="flex h-full w-full flex-col items-center justify-center bg-[linear-gradient(135deg,#adc178,#a98467)] p-5 text-center">
                       <ImageIcon size={42} className="text-[var(--color-vanilla-cream)]" />
@@ -2514,144 +2481,38 @@ export function ContentEpisodes() {
                   </div>
                   <label className="sm:col-span-2 text-xs font-medium text-muted">
                     Text block background opacity
-                    <input type="range" min={0} max={95} value={overlayOpacity} onChange={(e) => setOverlayOpacity(Number(e.target.value))} className="mt-2 w-full accent-[var(--color-muted-olive)]" />
+                    <input type="range" min={0} max={95} value={overlayOpacity} onChange={(e) => setOverlayOpacity(Number(e.target.value))} className="studio-range-touch mt-2 w-full accent-[var(--color-muted-olive)]" />
                   </label>
                   <label className="text-xs font-medium text-muted">
                     Title horizontal position
-                    <input type="range" min={8} max={92} value={overlayX} onChange={(e) => setOverlayX(Number(e.target.value))} className="mt-2 w-full accent-[var(--color-muted-olive)]" />
+                    <input type="range" min={8} max={92} value={overlayX} onChange={(e) => setOverlayX(Number(e.target.value))} className="studio-range-touch mt-2 w-full accent-[var(--color-muted-olive)]" />
                   </label>
                   <label className="text-xs font-medium text-muted">
                     Title vertical position
-                    <input type="range" min={10} max={92} value={overlayY} onChange={(e) => setOverlayY(Number(e.target.value))} className="mt-2 w-full accent-[var(--color-muted-olive)]" />
+                    <input type="range" min={10} max={92} value={overlayY} onChange={(e) => setOverlayY(Number(e.target.value))} className="studio-range-touch mt-2 w-full accent-[var(--color-muted-olive)]" />
                   </label>
                 </div>
               </div>
             </div>
           </Panel>
 
-          <Panel title="4. Phase 1 - Scene-by-Scene Scripting & TTS Generation" kicker={scriptWorkflow === 'scenes' ? 'Build scene cards as the authoritative source, attach character references, then render each clip.' : 'Convert the idea into 10-second cards, approve each segment, and test voice pacing before rendering.'} icon={Wand2}>
-            <div className="grid gap-3 lg:grid-cols-3">
-              {[
-                { id: 'scenes' as const, title: 'Generate From Scenes', body: 'Write 10-second scene cards directly. Final rendering uses each scene\'s voice-over and visual prompt, with per-scene character referencesΓÇönot the Section 1 base prompt.' },
-                { id: 'direct' as const, title: 'Direct From Base Prompt', body: 'Skip script blueprinting. Text output uses the Section 1 base prompt. For media, still build scene clips in the editor below.' },
-                { id: 'script' as const, title: 'Generate Script First', body: 'Expand the raw idea into a Markdown script blueprint, approve it, then continue to scene cards and rendering.' },
-              ].map((option) => (
-                <button
-                  key={option.id}
-                  type="button"
-                  onClick={() => {
-                    setScriptWorkflow(option.id);
-                    setScriptApproved(false);
-                  }}
-                  className={`rounded-xl border p-4 text-left ${scriptWorkflow === option.id ? 'border-[var(--color-muted-olive)] bg-[var(--color-tea-green)]/25' : 'border-border bg-white hover:border-[var(--color-muted-olive)]/60'}`}
-                >
-                  <p className="text-sm font-semibold text-dark">{option.title}</p>
-                  <p className="mt-1 text-xs leading-relaxed text-muted">{option.body}</p>
-                </button>
-              ))}
-            </div>
-
-            {scriptWorkflow === 'scenes' ? (
-              <div className="mt-4 rounded-xl border border-[var(--color-muted-olive)]/40 bg-[var(--color-tea-green)]/15 p-4">
-                <p className="text-sm font-semibold text-dark">Scene-first generation active</p>
-                <p className="mt-1 text-xs leading-relaxed text-muted">
-                  Initialize empty scene cards, write each 10-second beat directly, and attach theme character references per scene. This path does not convert the Section 1 base prompt into a script.
-                </p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <button type="button" onClick={handleInitializeSceneBoard} className="inline-flex items-center gap-2 rounded-xl bg-[var(--color-muted-olive)] px-4 py-2 text-sm font-semibold text-[var(--color-vanilla-cream)]">
-                    <Plus size={15} /> Initialize scene board
-                  </button>
-                  {scenesGateLocked && scenes.length > 0 && (
-                    <span className="inline-flex items-center rounded-full bg-[var(--color-faded-copper)]/15 px-3 py-1 text-[10px] font-semibold text-[var(--color-ash-brown)]">
-                      Add voice-over or visual prompt to every scene
-                    </span>
-                  )}
-                </div>
-              </div>
-            ) : scriptWorkflow === 'direct' ? (
-              <div className="mt-4 rounded-xl border border-[var(--color-tea-green)] bg-white p-4">
-                <p className="text-sm font-semibold text-dark">Script blueprint bypassed</p>
-                <p className="mt-1 text-xs leading-relaxed text-muted">Text generation uses the Section 1 base prompt. For media episodes, build and render scene clips in the editor below, then stitch the timeline.</p>
-              </div>
+          <Panel title="4. Scene Pipeline — Script Breakdown & Sequential Generation" kicker="Paste your full script in Section 1, finalize audio, review auto-generated beats once, then approve each scene before the next generates." icon={Wand2}>
+            {moduleId ? (
+              <EpisodePipelineFlow
+                moduleId={moduleId}
+                episodeKey={episodeWorkspaceKey}
+                episodeTitle={title}
+                script={basePrompt}
+                videoModel={videoModel}
+                audioTimelineUrl={episodeAudioTimelineUrl}
+                audioReady={episodeAudioFinalized}
+                onBeatsCommitted={(nextScenes) => {
+                  setScenes(nextScenes);
+                  setScriptApproved(true);
+                }}
+              />
             ) : (
-              <div className="mt-4 grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
-                <div className="rounded-xl border border-border p-4">
-                  <p className="text-sm font-semibold text-dark">Prompt-to-Script Converter</p>
-                  <p className="mt-1 text-xs leading-relaxed text-muted">
-                    Powered by {modelLabel(textModel, aiModels) || 'the selected text model'} and grounded in the selected module&apos;s linked theme.
-                  </p>
-                  <button type="button" onClick={handleGenerateScript} disabled={!selectedModule || !title.trim() || !basePrompt.trim() || !textModel || generateScriptMut.isPending} className="mt-4 inline-flex items-center gap-2 rounded-xl bg-[var(--color-muted-olive)] px-4 py-2 text-sm font-semibold text-[var(--color-vanilla-cream)] disabled:opacity-45">
-                    {generateScriptMut.isPending || scriptState === 'generating' ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />} Generate Script First
-                  </button>
-                  {!selectedModule && <p className="mt-2 text-xs text-[var(--color-faded-copper)]">Select a parent module so the script can inherit its theme bible.</p>}
-                  {scriptGateLocked && (
-                    <div className="mt-4 flex items-start gap-2 rounded-lg border border-[var(--color-faded-copper)]/30 p-3">
-                      <LockKeyhole size={15} className="mt-0.5 text-[var(--color-faded-copper)]" />
-                      <p className="text-xs leading-relaxed text-muted">Final media generation is locked until the script blueprint is approved.</p>
-                    </div>
-                  )}
-                </div>
-                <div className="rounded-xl border border-border p-4">
-                  <div className="mb-2 flex items-center justify-between gap-3">
-                    <p className="text-sm font-semibold text-dark">Script Editor Canvas</p>
-                    <div className="flex items-center gap-2">
-                      <div className="flex rounded-lg border border-border p-1">
-                        {(['edit', 'preview'] as ScriptView[]).map((view) => (
-                          <button
-                            key={view}
-                            type="button"
-                            onClick={() => setScriptView(view)}
-                            className={`rounded-md px-2.5 py-1 text-[10px] font-semibold capitalize ${scriptView === view ? 'bg-[var(--color-tea-green)]/45 text-[var(--color-ash-brown)]' : 'text-muted'}`}
-                          >
-                            {view}
-                          </button>
-                        ))}
-                      </div>
-                      {scriptApproved && <span className="rounded-full bg-[var(--color-tea-green)]/45 px-2.5 py-1 text-[10px] font-semibold text-[var(--color-ash-brown)]">Approved</span>}
-                    </div>
-                  </div>
-                  {scriptView === 'edit' ? (
-                    <div className="relative">
-                      <textarea
-                        className="input-field min-h-[260px] text-sm"
-                        value={scriptDraft}
-                        onChange={(e) => handleScriptDraftChange(e.target.value, e.currentTarget.selectionStart)}
-                        placeholder="Generated Markdown script blueprint appears here for review and edits. Type @ to reference theme characters."
-                      />
-                      {mentionOpen && (
-                        <div className="absolute left-3 top-12 z-20 w-64 overflow-hidden rounded-xl border border-border bg-white shadow-lg">
-                          {characterMentionOptions.length > 0 ? (
-                            characterMentionOptions.map((character) => (
-                              <button
-                                key={character.handle}
-                                type="button"
-                                onClick={() => insertCharacterMention(character.handle)}
-                                className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-xs hover:bg-[var(--color-tea-green)]/25"
-                              >
-                                <span className="font-semibold text-dark">{character.handle}</span>
-                                <span className="truncate text-muted">{character.name}</span>
-                              </button>
-                            ))
-                          ) : (
-                            <div className="px-3 py-2 text-xs leading-relaxed text-muted">No character handles found in the active Theme.</div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="markdown-preview min-h-[260px] rounded-xl border border-border bg-white p-4 text-sm text-dark">
-                      {scriptDraft.trim() ? (
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{scriptDraft}</ReactMarkdown>
-                      ) : (
-                        <p className="text-muted">Generated Markdown preview appears here after script generation.</p>
-                      )}
-                    </div>
-                  )}
-                  <button type="button" onClick={() => setScriptApproved(true)} disabled={!scriptDraft.trim()} className="mt-3 inline-flex items-center gap-2 rounded-xl bg-[var(--color-ash-brown)] px-4 py-2 text-sm font-semibold text-[var(--color-vanilla-cream)] disabled:opacity-45">
-                    <FileCheck2 size={15} /> Approve Script Blueprint
-                  </button>
-                </div>
-              </div>
+              <p className="text-sm text-muted">Select a parent module in Context before running the scene pipeline.</p>
             )}
 
             <div className="mt-5 rounded-xl border border-border bg-white p-4">
@@ -2659,9 +2520,7 @@ export function ContentEpisodes() {
                 <div>
                   <p className="text-sm font-semibold text-dark">Character Reference Selector</p>
                   <p className="mt-1 text-xs leading-relaxed text-muted">
-                    {scriptWorkflow === 'scenes'
-                      ? 'Choose theme character variants for the episode default, then override references on individual scene cards below.'
-                      : 'Choose saved character variants from the active theme to inject into this episode\'s media generation.'}
+                    Choose saved character variants from the active theme to inject into this episode&apos;s media generation.
                   </p>
                 </div>
                 <span className="rounded-full bg-[var(--color-tea-green)]/40 px-2.5 py-1 text-[10px] font-semibold text-[var(--color-ash-brown)]">
@@ -2686,7 +2545,11 @@ export function ContentEpisodes() {
                         className={`overflow-hidden rounded-xl border bg-white text-left transition ${checked ? 'border-[var(--color-muted-olive)] ring-2 ring-[var(--color-tea-green)]/60' : 'border-border hover:border-[var(--color-muted-olive)]/60'}`}
                       >
                         <div className="aspect-video bg-[var(--color-tea-green)]/25">
-                          <img src={reference.url} alt={reference.label} className="h-full w-full object-cover" />
+                          <ProtectedStudioImage
+                            originUrl={reference.url}
+                            alt={reference.label}
+                            className="h-full w-full object-cover"
+                          />
                         </div>
                         <div className="flex items-start gap-3 p-3">
                           <input type="checkbox" readOnly checked={checked} className="mt-0.5 accent-[var(--color-muted-olive)]" />
@@ -2705,19 +2568,12 @@ export function ContentEpisodes() {
             <div className="mt-5 rounded-xl border border-border bg-white p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <p className="text-sm font-semibold text-dark">10-Second Scene Cards</p>
-                  <p className="mt-1 text-xs leading-relaxed text-muted">{duration}s target runtime creates {targetSceneCount} chronological scene blocks.</p>
+                  <p className="text-sm font-semibold text-dark">Committed Scene Cards — TTS & Timeline</p>
+                  <p className="mt-1 text-xs leading-relaxed text-muted">
+                    After committing the beat queue above, refine voice-over lines and dialogue TTS per scene. Video generation runs sequentially through the pipeline approval gate.
+                  </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {scriptWorkflow === 'scenes' ? (
-                    <button type="button" onClick={handleInitializeSceneBoard} className="inline-flex items-center gap-2 rounded-xl bg-[var(--color-muted-olive)] px-4 py-2 text-sm font-semibold text-[var(--color-vanilla-cream)]">
-                      <Plus size={15} /> Initialize scene board
-                    </button>
-                  ) : (
-                    <button type="button" onClick={handleConvertIdeaToScenes} disabled={!basePrompt.trim() && !title.trim()} className="inline-flex items-center gap-2 rounded-xl bg-[var(--color-muted-olive)] px-4 py-2 text-sm font-semibold text-[var(--color-vanilla-cream)] disabled:opacity-45">
-                      <Sparkles size={15} /> Convert Idea to Script
-                    </button>
-                  )}
                   <button type="button" onClick={addScene} className="inline-flex items-center gap-2 rounded-xl border border-[var(--color-muted-olive)] px-4 py-2 text-sm font-semibold text-[var(--color-ash-brown)]">
                     <Plus size={15} /> Add Scene
                   </button>
@@ -2727,12 +2583,28 @@ export function ContentEpisodes() {
               {scenes.length === 0 ? (
                 <div className="mt-4 rounded-xl border border-dashed border-border p-6 text-center">
                   <Clock3 size={26} className="mx-auto text-[var(--color-ash-brown)]" />
-                  <p className="mt-3 text-sm font-semibold text-dark">No scenes generated yet</p>
-                  <p className="mt-1 text-xs leading-relaxed text-muted">Convert the idea into timed 10-second scene cards before media rendering.</p>
+                  <p className="mt-3 text-sm font-semibold text-dark">No committed scenes yet</p>
+                  <p className="mt-1 text-xs leading-relaxed text-muted">Break down your script and commit the beat queue in the pipeline above.</p>
                 </div>
               ) : (
                 <div className="mt-4 space-y-4">
-                  {scenes.map((scene, index) => {
+                  {scenes.length > COMMITTED_SCENE_PAGE_SIZE ? (
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border px-3 py-2 text-xs text-muted">
+                      <span>
+                        Showing scenes {committedScenePage * COMMITTED_SCENE_PAGE_SIZE + 1}–{Math.min((committedScenePage + 1) * COMMITTED_SCENE_PAGE_SIZE, scenes.length)} of {scenes.length}
+                      </span>
+                      <div className="flex gap-2">
+                        <button type="button" disabled={committedScenePage === 0} onClick={() => setCommittedScenePage((page) => Math.max(0, page - 1))} className="rounded-lg border border-border px-2 py-1 font-semibold text-dark disabled:opacity-40">
+                          Previous
+                        </button>
+                        <button type="button" disabled={committedScenePage >= committedScenePages - 1} onClick={() => setCommittedScenePage((page) => Math.min(committedScenePages - 1, page + 1))} className="rounded-lg border border-border px-2 py-1 font-semibold text-dark disabled:opacity-40">
+                          Next
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                  {visibleCommittedScenes.map((scene, index) => {
+                    const sceneIndex = committedScenePage * COMMITTED_SCENE_PAGE_SIZE + index;
                     const sceneRefIds = scene.selectedCharacterRefIds ?? selectedCharacterRefIds;
                     const sceneRefs = themeCharacterRefs.filter((reference) => sceneRefIds.includes(reference.id));
                     const sceneVideoUrl = scene.sceneVideoUrl;
@@ -2750,10 +2622,10 @@ export function ContentEpisodes() {
                           <p className="mt-1 text-xs text-muted">10-second segment with independent VO, prompt, TTS, and approval.</p>
                         </div>
                         <div className="flex flex-wrap gap-2">
-                          <button type="button" onClick={() => moveScene(scene.id, -1)} disabled={index === 0} className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-border text-muted hover:border-[var(--color-muted-olive)] disabled:opacity-35" aria-label="Move scene up">
+                          <button type="button" onClick={() => moveScene(scene.id, -1)} disabled={sceneIndex === 0} className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-border text-muted hover:border-[var(--color-muted-olive)] disabled:opacity-35" aria-label="Move scene up">
                             <ArrowUp size={15} />
                           </button>
-                          <button type="button" onClick={() => moveScene(scene.id, 1)} disabled={index === scenes.length - 1} className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-border text-muted hover:border-[var(--color-muted-olive)] disabled:opacity-35" aria-label="Move scene down">
+                          <button type="button" onClick={() => moveScene(scene.id, 1)} disabled={sceneIndex === scenes.length - 1} className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-border text-muted hover:border-[var(--color-muted-olive)] disabled:opacity-35" aria-label="Move scene down">
                             <ArrowDown size={15} />
                           </button>
                           <button type="button" onClick={() => deleteScene(scene.id)} className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-border text-muted hover:border-red-300 hover:text-red-600" aria-label="Delete scene">
@@ -2814,13 +2686,6 @@ export function ContentEpisodes() {
                             {sceneIsGeneratingTts(scene) ? <Loader2 size={14} className="animate-spin" /> : <Volume2 size={14} />}
                             {sceneHasReadyTts(scene) ? 'Add dialogue to timeline' : 'Generate first line'}
                           </button>
-                          <button type="button" onClick={() => handleGenerateSceneVideo(scene)} disabled={!selectedModule || !videoModel || sceneVideoStatus === 'generating' || (generateSceneVideoMut.isPending && generateSceneVideoMut.variables?.scene.id === scene.id)} className="inline-flex items-center gap-2 rounded-xl bg-[var(--color-ash-brown)] px-3 py-2 text-xs font-semibold text-[var(--color-vanilla-cream)] disabled:opacity-45">
-                            {sceneVideoStatus === 'generating' || (generateSceneVideoMut.isPending && generateSceneVideoMut.variables?.scene.id === scene.id) ? <Loader2 size={14} className="animate-spin" /> : <MonitorPlay size={14} />}
-                            Generate Scene Video
-                          </button>
-                          <button type="button" onClick={() => updateScene(scene.id, { approved: !scene.approved })} className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold ${scene.approved ? 'bg-[var(--color-muted-olive)] text-[var(--color-vanilla-cream)]' : 'border border-border text-dark hover:border-[var(--color-muted-olive)]'}`}>
-                            <CheckCircle2 size={14} /> {scene.approved ? 'Approved' : 'Approve Scene'}
-                          </button>
                         </div>
                       </div>
                       <div className="mt-3 rounded-xl border border-border bg-white p-3">
@@ -2843,7 +2708,11 @@ export function ContentEpisodes() {
                                   className={`min-w-28 overflow-hidden rounded-lg border bg-white text-left ${checked ? 'border-[var(--color-muted-olive)] ring-2 ring-[var(--color-tea-green)]/50' : 'border-border'}`}
                                 >
                                   <div className="aspect-video bg-[var(--color-tea-green)]/25">
-                                    <img src={reference.url} alt={reference.label} className="h-full w-full object-cover" />
+                                    <ProtectedStudioImage
+                                      originUrl={reference.url}
+                                      alt={reference.label}
+                                      className="h-full w-full object-cover"
+                                    />
                                   </div>
                                   <div className="p-2">
                                     <p className="truncate text-[10px] font-semibold text-dark">{reference.handle}</p>
@@ -2944,8 +2813,8 @@ export function ContentEpisodes() {
           />
 
           <Panel title="6. Final Review & Automated Broadcasting" kicker="Inspect the stitched master asset, tweak the workspace if needed, then approve direct posting." icon={CheckCircle2}>
-            <div className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
-              <div className="min-h-[320px] rounded-xl border border-border bg-white p-4">
+            <div className="grid gap-5 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
+              <div className="min-h-[min(50vh,20rem)] rounded-xl border border-border bg-white p-4">
                 {reviewState === 'generating' ? (
                   <div className="flex h-[280px] flex-col items-center justify-center text-center">
                     <Loader2 size={30} className="animate-spin text-[var(--color-ash-brown)]" />
@@ -2972,7 +2841,7 @@ export function ContentEpisodes() {
                       </div>
                     )}
                     <textarea
-                      className="min-h-[130px] w-full resize-none rounded-lg border border-border bg-white p-3 text-sm leading-relaxed text-dark outline-none focus:border-[var(--color-muted-olive)]"
+                      className="studio-textarea min-h-[130px] w-full resize-y rounded-lg border border-border bg-white p-3 text-sm leading-relaxed text-dark outline-none focus:border-[var(--color-muted-olive)]"
                       value={finalDraft}
                       onChange={(e) => {
                         setFinalDraft(e.target.value);
@@ -2983,7 +2852,7 @@ export function ContentEpisodes() {
                   </div>
                 ) : (
                   <textarea
-                    className="min-h-[280px] w-full resize-none rounded-lg border border-border bg-white p-3 text-sm leading-relaxed text-dark outline-none focus:border-[var(--color-muted-olive)]"
+                    className="studio-textarea min-h-[280px] w-full resize-y rounded-lg border border-border bg-white p-3 text-sm leading-relaxed text-dark outline-none focus:border-[var(--color-muted-olive)]"
                     value={finalDraft}
                     onChange={(e) => {
                       setFinalDraft(e.target.value);
@@ -3037,7 +2906,7 @@ export function ContentEpisodes() {
                     </div>
                     {publishEpisodeMut.isPending && <Loader2 size={16} className="animate-spin text-[var(--color-ash-brown)]" />}
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                     {(['youtube', 'tiktok', 'instagram'] as PublishPlatform[]).map((platform) => {
                       const connected = platform === 'youtube' ? youtubeConnection : platform === 'tiktok' ? tiktokConnection : instagramConnection;
                       const alreadyPublished = Boolean(episodeSocialPosts.some((post) => post.platform === platform)) || (platform === 'youtube' && Boolean(activeEpisode?.youtubeVideoId));
@@ -3066,7 +2935,7 @@ export function ContentEpisodes() {
                     })}
                   </div>
                   <textarea
-                    className="mt-3 min-h-[86px] w-full resize-none rounded-lg border border-border bg-white p-3 text-xs leading-relaxed text-dark outline-none focus:border-[var(--color-muted-olive)]"
+                    className="studio-textarea mt-3 min-h-[86px] w-full resize-y rounded-lg border border-border bg-white p-3 text-xs leading-relaxed text-dark outline-none focus:border-[var(--color-muted-olive)]"
                     value={publishDescription}
                     onChange={(event) => setPublishDescription(event.target.value)}
                     placeholder="Custom social caption/description for this post. If empty, a clean description is generated from the episode title, base idea, and module."

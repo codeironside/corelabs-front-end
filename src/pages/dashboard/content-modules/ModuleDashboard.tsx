@@ -57,7 +57,7 @@ import {
 
 type DashboardTab = 'metadata' | 'theme' | 'cover' | 'season' | 'destinations' | 'automation' | 'performance';
 
-const MANAGEMENT_TABS: { id: DashboardTab; label: string; icon: LucideIcon }[] = [
+const ALL_MANAGEMENT_TABS: { id: DashboardTab; label: string; icon: LucideIcon }[] = [
   { id: 'metadata', label: 'Metadata', icon: FileText },
   { id: 'theme', label: 'Theme', icon: Route },
   { id: 'cover', label: 'Cover Media', icon: ImageIcon },
@@ -65,7 +65,11 @@ const MANAGEMENT_TABS: { id: DashboardTab; label: string; icon: LucideIcon }[] =
   { id: 'destinations', label: 'Destinations', icon: Globe2 },
   { id: 'automation', label: 'Automation', icon: Settings2 },
   { id: 'performance', label: 'Performance', icon: BarChart3 },
-].filter((tab) => tab.id !== 'season' || featureFlags.moduleTopicRoadmapEnabled);
+];
+
+const MANAGEMENT_TABS = ALL_MANAGEMENT_TABS.filter(
+  (tab) => tab.id !== 'season' || featureFlags.moduleTopicRoadmapEnabled,
+);
 
 const STATUS_OPTIONS: SelectOption<ContentModule['status']>[] = [
   { value: 'draft', label: 'Draft' },

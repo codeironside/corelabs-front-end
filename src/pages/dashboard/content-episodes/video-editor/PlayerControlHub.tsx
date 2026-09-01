@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState, type PointerEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type PointerEvent, type ReactNode } from 'react';
 import { Captions, Loader2, Maximize2, Pause, Play, RefreshCcw, Scissors, Shrink, Volume2, VolumeX } from 'lucide-react';
 import type { EpisodeSceneCard } from '../storyboard';
 import { directStudioMediaUrl, preventMediaContextMenu, protectedMediaSurfaceClass, protectedVideoProps, resolveProtectedAudioPlaybackUrl, useProtectedMediaSrc } from '../protectedMedia';
@@ -869,7 +869,7 @@ export function PlayerControlHub({
       </div>
 
       <div
-        className={`mx-auto mt-4 flex max-h-[420px] cursor-pointer items-center justify-center overflow-hidden rounded-xl ${aspectRatio === '16:9' ? 'bg-[var(--color-ash-brown)]' : 'bg-black'} ${protectedMediaSurfaceClass} ${aspectRatio === '9:16' ? 'aspect-[9/16] w-full max-w-[236px]' : 'aspect-video w-full max-w-none'}`}
+        className={`studio-preview-frame mx-auto mt-4 flex cursor-pointer items-center justify-center overflow-hidden rounded-xl ${aspectRatio === '16:9' ? 'bg-[var(--color-ash-brown)]' : 'bg-black'} ${protectedMediaSurfaceClass} ${aspectRatio === '9:16' ? 'studio-preview-frame--portrait' : ''}`}
         onClick={togglePlayback}
         onContextMenu={preventMediaContextMenu}
         title={isPlaying ? 'Pause preview' : 'Play preview'}

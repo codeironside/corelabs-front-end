@@ -780,6 +780,12 @@ export const listSocialConnections = async (): Promise<SocialConnection[]> => {
   return data.data.connections;
 };
 
+export const disconnectSocialConnection = async (
+  platform: SocialConnection["platform"],
+): Promise<void> => {
+  await apiClient.delete(`/content/social/connections/${platform}`);
+};
+
 export interface PublishModuleResult {
   moduleId: string;
   platform: "youtube" | "tiktok" | "instagram";
@@ -1099,6 +1105,9 @@ export interface SceneBeat {
   actionSummary: string;
   dialogueSummary: string;
   complexity: BeatComplexityTier;
+  chapterIndex?: number;
+  chapterTitle?: string;
+  chapterBeatIndex?: number;
 }
 
 export type ModulePipelineStatus =
@@ -1111,9 +1120,11 @@ export type ModulePipelineStatus =
   | 'failed';
 
 export interface ModulePipeline {
-  _id: string;
+  _id?: string;
   moduleId: string;
   workspaceId: string;
+  episodeKey: string;
+  episodeTitle?: string;
   episodeId?: string;
   status: ModulePipelineStatus;
   fullScript?: string;
@@ -1127,9 +1138,18 @@ export interface ModulePipeline {
   progressLabel: string;
 }
 
+export type PipelineEpisodeRequest = {
+  episodeKey: string;
+  episodeTitle?: string;
+};
+
 export const runPipelineBreakdown = async (
   moduleId: string,
-  body: { script: string; audioTimelineUrl?: string; targetBeatDurationSec?: number },
+  body: PipelineEpisodeRequest & {
+    script: string;
+    audioTimelineUrl?: string;
+    targetBeatDurationSec?: number;
+  },
 ): Promise<{ beats: SceneBeat[]; pipelineId: string }> => {
   const { data } = await apiClient.post<ApiResponse<{ beats: SceneBeat[]; pipelineId: string }>>(
     `/content/modules/${moduleId}/pipeline/breakdown`,
@@ -1140,7 +1160,7 @@ export const runPipelineBreakdown = async (
 
 export const commitPipelineBeats = async (
   moduleId: string,
-  body: { beats: SceneBeat[]; reAnchorEveryN?: number },
+  body: PipelineEpisodeRequest & { beats: SceneBeat[]; reAnchorEveryN?: number },
 ): Promise<{ totalBeats: number }> => {
   const { data } = await apiClient.post<ApiResponse<{ totalBeats: number }>>(
     `/content/modules/${moduleId}/pipeline/beats/commit`,
@@ -1149,16 +1169,20 @@ export const commitPipelineBeats = async (
   return data.data;
 };
 
-export const getModulePipeline = async (moduleId: string): Promise<ModulePipeline> => {
+export const getModulePipeline = async (
+  moduleId: string,
+  episodeKey: string,
+): Promise<ModulePipeline> => {
   const { data } = await apiClient.get<ApiResponse<ModulePipeline>>(
     `/content/modules/${moduleId}/pipeline`,
+    { params: { episodeKey } },
   );
   return data.data;
 };
 
 export const generateNextPipelineScene = async (
   moduleId: string,
-  body: { model: string },
+  body: PipelineEpisodeRequest & { model: string },
 ): Promise<{ sceneNumber: number; status: string; episodeId?: string }> => {
   const { data } = await apiClient.post<
     ApiResponse<{ sceneNumber: number; status: string; episodeId?: string }>
@@ -1169,7 +1193,7 @@ export const generateNextPipelineScene = async (
 export const approvePipelineScene = async (
   moduleId: string,
   sceneNumber: number,
-  body: { approved: boolean; editedBeat?: Partial<SceneBeat> },
+  body: PipelineEpisodeRequest & { approved: boolean; editedBeat?: Partial<SceneBeat> },
 ): Promise<{ status: string; currentSceneIndex: number }> => {
   const { data } = await apiClient.post<ApiResponse<{ status: string; currentSceneIndex: number }>>(
     `/content/modules/${moduleId}/pipeline/scenes/${sceneNumber}/approval`,

@@ -1,5 +1,6 @@
-﻿import { useState } from 'react';
+import { useState } from 'react';
 import { ImageIcon, Layers3, MonitorPlay, Volume2 } from 'lucide-react';
+import { ProtectedStudioImage } from '../ProtectedStudioImage';
 import type { ContentModule } from '@/api/content';
 import type { EpisodeSceneCard, ThemeCharacterReference } from '../storyboard';
 import { clipStatusClass, statusLabel, timecode } from './editorUtils';
@@ -56,7 +57,11 @@ export function AssetMediaBin({
             {themeCharacterRefs.length > 0 ? themeCharacterRefs.map((reference) => (
               <button key={reference.id} type="button" className="w-full overflow-hidden rounded-lg border border-border bg-white text-left hover:border-[var(--color-muted-olive)]">
                 <div className="aspect-video bg-[var(--color-tea-green)]/25">
-                  <img src={reference.url} alt={reference.label} className="h-full w-full object-cover" />
+                  <ProtectedStudioImage
+                    originUrl={reference.url}
+                    alt={reference.label}
+                    className="h-full w-full object-cover"
+                  />
                 </div>
                 <div className="p-3">
                   <p className="truncate text-xs font-semibold text-dark">{reference.handle}</p>

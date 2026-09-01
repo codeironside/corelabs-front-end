@@ -24,6 +24,7 @@ export function moduleAutomationFields(
 export type Platform = 'youtube' | 'tiktok' | 'facebook';
 export type Frequency = 'daily' | 'weekly' | 'biweekly' | 'monthly' | 'manual';
 export type OptimizationTarget = 'engagement' | 'retention' | 'ctr';
+export type ModuleLifecycle = 'draft' | 'active' | 'paused' | 'completed';
 
 export type RoadmapItem = {
   id: string;

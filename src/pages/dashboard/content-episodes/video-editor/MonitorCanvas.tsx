@@ -1,4 +1,4 @@
-﻿import { MonitorPlay } from 'lucide-react';
+import { MonitorPlay } from 'lucide-react';
 import { ProtectedStudioVideo } from '../ProtectedStudioVideo';
 import type { EpisodeSceneCard } from '../storyboard';
 import { segmentVideoUrl } from './editorUtils';
@@ -26,7 +26,7 @@ export function MonitorCanvas({
         </div>
         <span className="rounded-full bg-white/10 px-3 py-1 text-[11px] font-semibold text-[var(--color-vanilla-cream)]">{aspectRatio}</span>
       </div>
-      <div className={`mx-auto mt-4 flex max-h-[420px] items-center justify-center overflow-hidden rounded-xl bg-black ${aspectRatio === '9:16' ? 'aspect-[9/16] w-full max-w-[236px]' : 'aspect-video w-full'}`}>
+      <div className={`mx-auto mt-4 flex items-center justify-center overflow-hidden rounded-xl bg-black studio-preview-frame ${aspectRatio === '9:16' ? 'studio-preview-frame--portrait' : ''}`}>
         {selectedVideoUrl ? (
           <ProtectedStudioVideo originUrl={selectedVideoUrl} className="h-full w-full" />
         ) : finalVideoUrl ? (

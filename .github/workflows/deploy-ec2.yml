@@ -1,0 +1,86 @@
+# Repo: corelabs-frontend only — build and deploy static site to EC2.
+name: Frontend — Build and deploy to EC2
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: frontend-ec2-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      VITE_APP_NAME: ${{ vars.VITE_APP_NAME || 'CoreLabsStudio' }}
+      VITE_STUDIO_API_URL: ${{ vars.VITE_STUDIO_API_URL }}
+      VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
+      VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.VITE_FIREBASE_AUTH_DOMAIN }}
+      VITE_FIREBASE_PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID }}
+      VITE_FIREBASE_STORAGE_BUCKET: ${{ vars.VITE_FIREBASE_STORAGE_BUCKET }}
+      VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+      VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Validate build env
+        run: test -n "${VITE_STUDIO_API_URL}"
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: frontend-release
+          path: dist
+          retention-days: 7
+
+  deploy:
+    name: Deploy UI to EC2
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      EC2_HOST: ${{ secrets.EC2_HOST }}
+      EC2_USER: ${{ secrets.EC2_USER }}
+      EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+      EC2_DEPLOY_ROOT: ${{ vars.EC2_DEPLOY_ROOT || '/opt/corelabs' }}
+      RELEASE_ID: frontend-${{ github.sha }}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: frontend-release
+          path: frontend-release
+
+      - name: Deploy frontend only
+        run: |
+          set -euo pipefail
+          install -m 700 -d "${HOME}/.ssh"
+          printf '%s\n' "${EC2_SSH_KEY}" > "${HOME}/.ssh/ec2_deploy_key"
+          chmod 600 "${HOME}/.ssh/ec2_deploy_key"
+          ssh-keyscan -H "${EC2_HOST}" >> "${HOME}/.ssh/known_hosts" 2>/dev/null || true
+          REMOTE="${EC2_USER}@${EC2_HOST}"
+          REMOTE_RELEASE="${EC2_DEPLOY_ROOT}/releases/${RELEASE_ID}"
+          ssh -i "${HOME}/.ssh/ec2_deploy_key" "${REMOTE}" "mkdir -p '${REMOTE_RELEASE}/frontend'"
+          rsync -az --delete -e "ssh -i ${HOME}/.ssh/ec2_deploy_key" \
+            frontend-release/ "${REMOTE}:${REMOTE_RELEASE}/frontend/"
+          ssh -i "${HOME}/.ssh/ec2_deploy_key" "${REMOTE}" \
+            "ln -sfn '${REMOTE_RELEASE}/frontend' '${EC2_DEPLOY_ROOT}/current/frontend' && nginx -t && systemctl reload nginx"

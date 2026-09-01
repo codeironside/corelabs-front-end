@@ -1,4 +1,4 @@
-﻿import type { ContentTheme } from '@/api/content';
+import type { ContentTheme } from '@/api/content';
 
 export type ThemeCharacterReference = {
   id: string;
@@ -58,6 +58,8 @@ export type EpisodeSceneCard = {
   sceneVideoTakeId?: string;
   episodeSceneDocId?: string;
   sceneVideoAudioEnabled?: boolean;
+  chapterIndex?: number;
+  chapterTitle?: string;
 };
 
 const CHARACTER_LIBRARY_MARKER = 'CHARACTER_REFERENCE_LIBRARY_JSON';

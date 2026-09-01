@@ -10,6 +10,7 @@ import {
   runPipelineBreakdown,
   type SceneBeat,
 } from '@/api/content';
+import { createEpisodeWorkspaceKey } from '@/pages/dashboard/content-episodes/episodeWorkspace';
 
 function BeatEditor({
   beat,
@@ -57,14 +58,15 @@ export function StudioPipelinePanel(): React.JSX.Element {
   const queryClient = useQueryClient();
   const modulesQuery = useQuery({ queryKey: ['content', 'modules'], queryFn: listContentModules });
   const [moduleId, setModuleId] = useState('');
+  const [episodeKey] = useState(() => createEpisodeWorkspaceKey());
   const [script, setScript] = useState('');
   const [beats, setBeats] = useState<SceneBeat[]>([]);
   const [videoModel, setVideoModel] = useState('openai:sora-2');
 
   const pipelineQuery = useQuery({
-    queryKey: ['content', 'pipeline', moduleId],
-    queryFn: () => getModulePipeline(moduleId),
-    enabled: Boolean(moduleId),
+    queryKey: ['content', 'pipeline', moduleId, episodeKey],
+    queryFn: () => getModulePipeline(moduleId, episodeKey),
+    enabled: Boolean(moduleId && episodeKey),
     refetchInterval: (query) =>
       query.state.data?.status === 'generating' || query.state.data?.status === 'awaiting_approval'
         ? 4000
@@ -75,31 +77,37 @@ export function StudioPipelinePanel(): React.JSX.Element {
   const activeSceneNumber = pipeline ? pipeline.currentSceneIndex + 1 : 1;
 
   const breakdownMutation = useMutation({
-    mutationFn: () => runPipelineBreakdown(moduleId, { script }),
+    mutationFn: () =>
+      runPipelineBreakdown(moduleId, {
+        episodeKey,
+        episodeTitle: 'Studio pipeline lab',
+        script,
+      }),
     onSuccess: (data) => {
       setBeats(data.beats);
-      void queryClient.invalidateQueries({ queryKey: ['content', 'pipeline', moduleId] });
+      void queryClient.invalidateQueries({ queryKey: ['content', 'pipeline', moduleId, episodeKey] });
     },
   });
 
   const commitMutation = useMutation({
-    mutationFn: () => commitPipelineBeats(moduleId, { beats, reAnchorEveryN: 15 }),
+    mutationFn: () => commitPipelineBeats(moduleId, { episodeKey, beats, reAnchorEveryN: 15 }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['content', 'pipeline', moduleId] });
+      void queryClient.invalidateQueries({ queryKey: ['content', 'pipeline', moduleId, episodeKey] });
     },
   });
 
   const generateMutation = useMutation({
-    mutationFn: () => generateNextPipelineScene(moduleId, { model: videoModel }),
+    mutationFn: () => generateNextPipelineScene(moduleId, { episodeKey, model: videoModel }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['content', 'pipeline', moduleId] });
+      void queryClient.invalidateQueries({ queryKey: ['content', 'pipeline', moduleId, episodeKey] });
     },
   });
 
   const approvalMutation = useMutation({
-    mutationFn: (approved: boolean) => approvePipelineScene(moduleId, activeSceneNumber, { approved }),
+    mutationFn: (approved: boolean) =>
+      approvePipelineScene(moduleId, activeSceneNumber, { episodeKey, approved }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['content', 'pipeline', moduleId] });
+      void queryClient.invalidateQueries({ queryKey: ['content', 'pipeline', moduleId, episodeKey] });
     },
   });
 

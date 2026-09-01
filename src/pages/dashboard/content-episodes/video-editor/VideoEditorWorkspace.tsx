@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Film, Loader2, Play } from 'lucide-react';
 import { AudioEqualizerPanel } from './AudioEqualizerPanel';
 import { AudioLayerControls } from './AudioLayerControls';
@@ -173,7 +173,7 @@ export function VideoEditorWorkspace({
               type="button"
               onClick={renderWithTimeline}
               disabled={!canRender || isRendering}
-              className="inline-flex items-center gap-2 rounded-xl bg-[var(--color-ash-brown)] px-4 py-2 text-sm font-semibold text-[var(--color-vanilla-cream)] shadow-sm disabled:opacity-45"
+              className="studio-touch-target-inline inline-flex items-center gap-2 rounded-xl bg-[var(--color-ash-brown)] px-4 py-2 text-sm font-semibold text-[var(--color-vanilla-cream)] shadow-sm disabled:opacity-45"
             >
               {isRendering ? <Loader2 size={15} className="animate-spin" /> : <Play size={15} />}
               Render and Stitch Full Episode
@@ -183,7 +183,7 @@ export function VideoEditorWorkspace({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
-      <div className="grid gap-0 xl:grid-cols-[18rem_1fr_20rem]">
+      <div className="studio-video-editor-grid">
         <AssetMediaBin
           selectedModule={selectedModule}
           scenes={scenes}
@@ -195,7 +195,7 @@ export function VideoEditorWorkspace({
         />
 
         <main className="min-w-0 border-b border-border xl:border-b-0">
-          <div className="grid gap-0 lg:grid-cols-[1fr_18rem]">
+          <div className="studio-video-editor-main">
             <div className="p-4">
               <PlayerControlHub
                 aspectRatio={aspectRatio}
