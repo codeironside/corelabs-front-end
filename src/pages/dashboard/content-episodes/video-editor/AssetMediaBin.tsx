@@ -1,9 +1,11 @@
 import { useState } from 'react';
-import { ImageIcon, Layers3, MonitorPlay, Volume2 } from 'lucide-react';
+import { ImageIcon, Layers3, Loader2, MonitorPlay, Volume2 } from 'lucide-react';
 import { ProtectedStudioImage } from '../ProtectedStudioImage';
+import { ProtectedStudioVideo } from '../ProtectedStudioVideo';
+import { SceneApprovalActions } from '../SceneApprovalActions';
 import type { ContentModule } from '@/api/content';
 import type { EpisodeSceneCard, ThemeCharacterReference } from '../storyboard';
-import { clipStatusClass, statusLabel, timecode } from './editorUtils';
+import { clipStatusClass, resolveSceneClipVideoUrl, statusLabel, timecode } from './editorUtils';
 import type { EditorAssetTab, EpisodeAssetBinItem, EpisodeTimelineSegment } from './types';
 
 const assetTabs: Array<{ id: EditorAssetTab; label: string }> = [
@@ -21,6 +23,10 @@ export function AssetMediaBin({
   assets,
   moduleDestinations,
   onSelectScene,
+  onApproveScene,
+  onRetryScene,
+  onEditRetryScene,
+  approvalBusy = false,
 }: {
   selectedModule?: ContentModule;
   scenes: EpisodeSceneCard[];
@@ -29,6 +35,10 @@ export function AssetMediaBin({
   assets: EpisodeAssetBinItem[];
   moduleDestinations: string[];
   onSelectScene: (sceneId: string) => void;
+  onApproveScene?: (scene: EpisodeSceneCard) => void;
+  onRetryScene?: (scene: EpisodeSceneCard) => void;
+  onEditRetryScene?: (scene: EpisodeSceneCard, editedBeat: string) => void;
+  approvalBusy?: boolean;
 }) {
   const [assetTab, setAssetTab] = useState<EditorAssetTab>('video');
   const generatedClips = scenes.map((scene) => ({
@@ -74,23 +84,48 @@ export function AssetMediaBin({
 
         {assetTab === 'video' && (
           <>
-            {generatedClips.map(({ scene, segment }) => (
-              <button
+            {generatedClips.map(({ scene, segment }) => {
+              const clipUrl = resolveSceneClipVideoUrl(scene, segment);
+              const cardStatus = scene.catalogStatus ?? segment?.status ?? scene.sceneVideoStatus;
+              const generating = cardStatus === 'generating' || cardStatus === 'queued';
+              return (
+              <div
                 key={scene.id}
-                type="button"
-                onClick={() => onSelectScene(scene.id)}
-                className="flex w-full items-center gap-3 rounded-lg border border-border bg-white p-2 text-left hover:border-[var(--color-muted-olive)]"
+                className="rounded-lg border border-border bg-white p-2"
               >
-                <div className={`flex h-14 w-20 shrink-0 items-center justify-center rounded-md ${clipStatusClass(segment?.status)}`}>
-                  <MonitorPlay size={18} />
-                </div>
-                <div className="min-w-0">
-                  <p className="truncate text-xs font-semibold text-dark">Scene {scene.sceneNumber}</p>
-                  <p className="text-[11px] text-muted">{timecode(scene.startSec)} - {timecode(scene.endSec)}</p>
-                  <p className="text-[11px] font-semibold text-[var(--color-ash-brown)]">{statusLabel(segment?.status)}</p>
-                </div>
-              </button>
-            ))}
+                <button
+                  type="button"
+                  onClick={() => onSelectScene(scene.id)}
+                  className="flex w-full items-center gap-3 text-left hover:opacity-90"
+                >
+                  <div className={`relative flex h-14 w-20 shrink-0 items-center justify-center overflow-hidden rounded-md ${clipStatusClass(cardStatus)}`}>
+                    {clipUrl && !generating ? (
+                      <ProtectedStudioVideo originUrl={clipUrl} className="h-full w-full" videoClassName="h-full w-full object-cover" muted />
+                    ) : generating ? (
+                      <Loader2 size={18} className="animate-spin" />
+                    ) : (
+                      <MonitorPlay size={18} />
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="truncate text-xs font-semibold text-dark">Scene {scene.sceneNumber}</p>
+                    <p className="text-[11px] text-muted">{timecode(scene.startSec)} - {timecode(scene.endSec)}</p>
+                    <p className="text-[11px] font-semibold text-[var(--color-ash-brown)]">{statusLabel(cardStatus)}</p>
+                  </div>
+                </button>
+                {onApproveScene && onRetryScene && onEditRetryScene ? (
+                  <div className="mt-2 border-t border-border pt-2">
+                    <SceneApprovalActions
+                      scene={scene}
+                      busy={approvalBusy}
+                      onApprove={onApproveScene}
+                      onRetry={onRetryScene}
+                      onEditRetry={onEditRetryScene}
+                    />
+                  </div>
+                ) : null}
+              </div>
+            );})}
           </>
         )}
 

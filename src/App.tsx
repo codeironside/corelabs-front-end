@@ -4,6 +4,8 @@ import { Toaster } from 'react-hot-toast';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 import { RoleGate } from '@/components/auth/RoleGate';
 import { HomePage } from '@/pages/marketing/HomePage';
+import { StoriesPage } from '@/pages/marketing/StoriesPage';
+import { StoryDetailPage } from '@/pages/marketing/StoryDetailPage';
 import { LoginPage } from '@/pages/auth/LoginPage';
 import { UserAccountPage } from '@/pages/auth/UserAccountPage';
 import { ContentStudioPage } from '@/pages/app/ContentStudioPage';
@@ -38,6 +40,8 @@ export function App(): React.JSX.Element {
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<HomePage />} />
+          <Route path="/stories" element={<StoriesPage />} />
+          <Route path="/stories/:slug" element={<StoryDetailPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route element={<ProtectedRoute />}>
             <Route path="/account" element={<UserAccountPage />} />

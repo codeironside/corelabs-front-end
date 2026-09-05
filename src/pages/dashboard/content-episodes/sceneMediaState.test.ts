@@ -72,3 +72,46 @@ test('mergeSceneMediaFromDoc keeps scene-specific video and tts urls', () => {
   assert.equal(merged.ttsStatus, 'ready');
   assert.equal(merged.episodeSceneDocId, 'doc-2');
 });
+
+test('mergeSceneMediaFromDoc maps pending_approval as playable, not generating', () => {
+  const merged = mergeSceneMediaFromDoc(baseScene, {
+    _id: 'doc-2',
+    episodeId: 'episode-b',
+    moduleId: 'module-1',
+    sceneNumber: 2,
+    startSec: 10,
+    endSec: 20,
+    voiceOver: '',
+    visualPrompt: 'Beat',
+    characterHandles: [],
+    status: 'pending_approval',
+    cloudinaryUrl: 'https://res.cloudinary.com/demo/video/upload/scene-2.mp4',
+  });
+
+  assert.equal(merged.sceneVideoStatus, 'pending_approval');
+  assert.equal(merged.catalogStatus, 'pending_approval');
+  assert.equal(merged.approved, false);
+  assert.equal(merged.sceneVideoUrl, 'https://res.cloudinary.com/demo/video/upload/scene-2.mp4');
+});
+
+test('mergeSceneMediaFromDoc keeps narration audioSegmentUrl distinct from dialogue ttsAudioUrl', () => {
+  const merged = mergeSceneMediaFromDoc(baseScene, {
+    _id: 'doc-2',
+    episodeId: 'episode-b',
+    moduleId: 'module-1',
+    sceneNumber: 2,
+    startSec: 10,
+    endSec: 20,
+    voiceOver: '',
+    visualPrompt: 'Beat',
+    characterHandles: [],
+    status: 'unrendered',
+    ttsAudioUrl: 'https://cdn.example/dialogue.mp3',
+    ttsLabel: 'Dialogue line',
+    audioSegmentUrl: 'https://cdn.example/narration-slice.mp3',
+  });
+
+  assert.equal(merged.audioSegmentUrl, 'https://cdn.example/narration-slice.mp3');
+  assert.equal(merged.ttsAudioUrl?.includes('dialogue.mp3'), true);
+  assert.notEqual(merged.audioSegmentUrl, merged.ttsAudioUrl);
+});

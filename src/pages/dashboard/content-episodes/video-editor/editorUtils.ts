@@ -27,18 +27,23 @@ export function timelineWidth(seconds: number, zoom: number) {
   return Math.max(1, Math.round(seconds * zoom));
 }
 
-export function statusLabel(status?: EpisodeTimelineSegment['status']) {
+export function statusLabel(status?: EpisodeTimelineSegment['status'] | EpisodeSceneCard['sceneVideoStatus'] | EpisodeSceneCard['catalogStatus']) {
   if (!status) return 'Unrendered';
   if (status === 'queued') return 'Queued';
-  if (status === 'generating') return 'Rendering';
+  if (status === 'generating') return 'Generating';
+  if (status === 'pending_approval') return 'Pending approval';
+  if (status === 'approved') return 'Approved';
+  if (status === 'rejected') return 'Rejected';
+  if (status === 'unrendered') return 'Unrendered';
   if (status === 'ready') return 'Clip ready';
   return 'Clip failed';
 }
 
-export function clipStatusClass(status?: EpisodeTimelineSegment['status']) {
-  if (status === 'ready') return 'bg-[var(--color-muted-olive)] text-[var(--color-vanilla-cream)]';
-  if (status === 'failed') return 'bg-red-100 text-red-700';
-  if (status === 'generating') return 'bg-[var(--color-faded-copper)]/25 text-[var(--color-ash-brown)]';
+export function clipStatusClass(status?: EpisodeTimelineSegment['status'] | EpisodeSceneCard['sceneVideoStatus'] | EpisodeSceneCard['catalogStatus']) {
+  if (status === 'ready' || status === 'approved') return 'bg-[var(--color-muted-olive)] text-[var(--color-vanilla-cream)]';
+  if (status === 'pending_approval') return 'bg-[var(--color-tea-green)]/55 text-[var(--color-ash-brown)]';
+  if (status === 'failed' || status === 'rejected') return 'bg-red-100 text-red-700';
+  if (status === 'generating' || status === 'queued') return 'bg-[var(--color-faded-copper)]/25 text-[var(--color-ash-brown)]';
   return 'bg-[var(--color-tea-green)]/35 text-[var(--color-ash-brown)]';
 }
 

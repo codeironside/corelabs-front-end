@@ -88,7 +88,7 @@ export type EpisodeTimelineSegment = {
   sceneNumber: number;
   startSec: number;
   endSec: number;
-  status: 'queued' | 'generating' | 'ready' | 'failed';
+  status: 'queued' | 'generating' | 'ready' | 'failed' | 'unrendered' | 'pending_approval' | 'approved' | 'rejected';
   videoUrl?: string;
   cloudinaryUrl?: string;
   s3Url?: string;
@@ -139,6 +139,11 @@ export type VideoEditorWorkspaceProps = {
   canRender: boolean;
   isRendering: boolean;
   renderDisabledReason: string;
+  canSequentialGenerate?: boolean;
+  isSequentialGenerating?: boolean;
+  sequentialDisabledReason?: string;
+  approvalProgressText?: string;
+  approvalBusy?: boolean;
   soundEnabled: boolean;
   audioModel: string;
   videoModel: string;
@@ -165,5 +170,9 @@ export type VideoEditorWorkspaceProps = {
   onGenerateSceneTts: (sceneId: string) => void;
   onReorderScene: (draggedSceneId: string, targetSceneId: string) => void;
   onRenderMaster: (options?: TimelineRenderOptions) => void;
+  onSequentialGenerate?: () => void;
+  onApproveScene?: (scene: EpisodeSceneCard) => void;
+  onRetryScene?: (scene: EpisodeSceneCard) => void;
+  onEditRetryScene?: (scene: EpisodeSceneCard, editedBeat: string) => void;
   onVideoModelChange: (model: string) => void;
 };

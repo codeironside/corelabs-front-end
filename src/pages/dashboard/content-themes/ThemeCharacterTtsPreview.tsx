@@ -127,19 +127,6 @@ export function ThemeCharacterTtsPreview({
           onChange={(e) => onUpdateCharacter(character.id, 'ttsTestPhrase', e.target.value)}
         />
         <div className="mt-2 flex flex-wrap items-center gap-2">
-          <select
-            className="input-field min-w-40 flex-1 text-xs"
-            value={audioModel}
-            onChange={(e) => onAudioModelChange(e.target.value)}
-            disabled={audioModels.length === 0}
-          >
-            <option value="">{audioModels.length === 0 ? 'No TTS models available' : 'Select TTS model'}</option>
-            {audioModels.map((model) => (
-              <option key={model.value} value={model.value}>
-                {model.providerLabel} {model.label}
-              </option>
-            ))}
-          </select>
           <button
             type="button"
             onClick={() => onPreview(character.id)}
@@ -149,6 +136,7 @@ export function ThemeCharacterTtsPreview({
             {previewPending ? <Loader2 size={13} className="animate-spin" /> : <Volume2 size={13} />}
             {previewPending ? 'Generating...' : 'Preview voice'}
           </button>
+          <span className="text-[10px] text-muted">TTS model is routed automatically.</span>
         </div>
       </div>
     </div>

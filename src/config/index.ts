@@ -4,9 +4,9 @@ const envSchema = z.object({
   VITE_APP_NAME: z.string().default('CoreLabsStudio'),
   VITE_STUDIO_API_URL: z.string().url(),
   VITE_FIREBASE_API_KEY: z.string().default(''),
-  VITE_FIREBASE_AUTH_DOMAIN: z.string().default('ajeoba-web-storage.firebaseapp.com'),
-  VITE_FIREBASE_PROJECT_ID: z.string().default('ajeoba-web-storage'),
-  VITE_FIREBASE_STORAGE_BUCKET: z.string().default('ajeoba-web-storage.firebasestorage.app'),
+  VITE_FIREBASE_AUTH_DOMAIN: z.string().default('ajeoba-54fca.firebaseapp.com'),
+  VITE_FIREBASE_PROJECT_ID: z.string().default('ajeoba-54fca'),
+  VITE_FIREBASE_STORAGE_BUCKET: z.string().default('ajeoba-54fca.firebasestorage.app'),
   VITE_FIREBASE_MESSAGING_SENDER_ID: z.string().default(''),
   VITE_FIREBASE_APP_ID: z.string().default(''),
 });

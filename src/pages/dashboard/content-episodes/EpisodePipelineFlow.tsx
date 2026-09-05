@@ -4,39 +4,88 @@ import { Check, Loader2, RefreshCw, Sparkles, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import {
   approvePipelineScene,
-  commitPipelineBeats,
+  breakEpisodeIntoBeats,
+  commitEpisodeScenes,
   generateNextPipelineScene,
   getModulePipeline,
-  runPipelineBreakdown,
+  splitEpisodeChapters,
+  type DraftSceneBeat,
+  type EpisodeCharacterSelectorChoice,
+  type FailedChapter,
   type SceneBeat,
 } from '@/api/content';
-import type { EpisodeSceneCard } from './storyboard';
-import { beatsToSceneCards } from './episodePipeline';
+import { needsChapterSplit } from './episodePipeline';
+import { timestamp } from './storyboard';
 import { VirtualizedSceneBoard } from './VirtualizedSceneBoard';
+import { approvalProgress } from './sceneApproval';
+
+function apiErrorMessage(error: unknown, fallback: string): string {
+  if (
+    typeof error === 'object'
+    && error !== null
+    && 'response' in error
+    && typeof (error as { response?: { data?: { message?: unknown } } }).response?.data?.message === 'string'
+  ) {
+    return (error as { response: { data: { message: string } } }).response.data.message;
+  }
+  return fallback;
+}
+
+function draftToSceneBeat(beat: DraftSceneBeat): SceneBeat {
+  return {
+    beatIndex: beat.order - 1,
+    durationSec: Math.max(1, beat.endSeconds - beat.startSeconds),
+    characterHandles: beat.characterMentions,
+    setting: `${timestamp(beat.startSeconds)}–${timestamp(beat.endSeconds)}`,
+    actionSummary: beat.beatDescription,
+    dialogueSummary: '',
+    complexity: 'simple',
+    chapterIndex: beat.chapterIndex ?? 0,
+    chapterTitle: `Chapter ${(beat.chapterIndex ?? 0) + 1}`,
+  };
+}
+
+function sceneBeatToDraft(beat: SceneBeat, previous?: DraftSceneBeat): DraftSceneBeat {
+  const startSeconds = previous?.startSeconds ?? beat.beatIndex * beat.durationSec;
+  return {
+    order: beat.beatIndex + 1,
+    startSeconds,
+    endSeconds: previous?.endSeconds ?? startSeconds + beat.durationSec,
+    beatDescription: beat.actionSummary,
+    characterMentions: beat.characterHandles ?? previous?.characterMentions ?? [],
+    chapterIndex: previous?.chapterIndex ?? beat.chapterIndex ?? 0,
+    breakdownStatus: previous?.breakdownStatus ?? 'ready',
+  };
+}
 
 interface EpisodePipelineFlowProps {
   moduleId: string;
+  episodeId?: string;
   episodeKey: string;
   episodeTitle: string;
   script: string;
   videoModel: string;
-  audioTimelineUrl?: string;
   audioReady: boolean;
-  onBeatsCommitted: (scenes: EpisodeSceneCard[]) => void;
+  runtimeTargetSeconds: number;
+  selectedCharacters: EpisodeCharacterSelectorChoice[];
+  onScenesCommitted: (episodeId: string) => void;
 }
 
 export function EpisodePipelineFlow({
   moduleId,
+  episodeId,
   episodeKey,
   episodeTitle,
   script,
   videoModel,
-  audioTimelineUrl,
   audioReady,
-  onBeatsCommitted,
+  runtimeTargetSeconds,
+  selectedCharacters,
+  onScenesCommitted,
 }: EpisodePipelineFlowProps): React.JSX.Element {
   const queryClient = useQueryClient();
-  const [beats, setBeats] = useState<SceneBeat[]>([]);
+  const [draftBeats, setDraftBeats] = useState<DraftSceneBeat[]>([]);
+  const [failedChapters, setFailedChapters] = useState<FailedChapter[]>([]);
   const [reviewCommitted, setReviewCommitted] = useState(false);
   const [editBeatDraft, setEditBeatDraft] = useState<SceneBeat | null>(null);
 
@@ -51,64 +100,96 @@ export function EpisodePipelineFlow({
   });
 
   const pipeline = pipelineQuery.data;
-  const scriptMismatch = Boolean(
-    pipeline?.fullScript?.trim()
-    && script.trim()
-    && pipeline.fullScript.trim() !== script.trim(),
-  );
-  const displayBeats = scriptMismatch
-    ? beats
-    : beats.length > 0
-      ? beats
-      : (pipeline?.beatQueue ?? []);
+  const displayBeats = draftBeats.map(draftToSceneBeat);
   const activeSceneNumber = pipeline ? pipeline.currentSceneIndex + 1 : 1;
-  const queueCommitted = reviewCommitted || Boolean(pipeline?.beatQueueCommitted && !scriptMismatch);
+  const queueCommitted = reviewCommitted || Boolean(pipeline?.beatQueueCommitted && draftBeats.length === 0);
+  const canBreak = Boolean(episodeId && script.trim() && audioReady);
 
   const progressLabel = useMemo(() => {
-    if (scriptMismatch) {
-      return 'This episode script changed since the last breakdown. Re-run beat breakdown to refresh the queue.';
+    if (!episodeId) return 'Save the episode in Section 1 first so scene beats can attach to it.';
+    if (!audioReady) {
+      return 'Generate or upload the full episode audio track in the Voice-Over panel before breaking the script into timed beats.';
     }
-    if (!displayBeats.length) return 'Paste your script in Section 1, finalize audio, then break it into beats.';
-    if (!queueCommitted) return `Review ${displayBeats.length} generated beats before starting video generation.`;
+    if (!script.trim()) return 'Add a Base Textual Prompt in Episode Initialization before breaking the script into scene beats.';
     if (pipeline?.status === 'awaiting_approval') {
-      return `Scene ${activeSceneNumber} of ${displayBeats.length} — awaiting your approval`;
+      const beats = displayBeats.length ? displayBeats : pipeline.beatQueue;
+      const records = beats.map((beat, index) => {
+        const sceneNumber = (beat.beatIndex ?? index) + 1;
+        return {
+          sceneNumber,
+          catalogStatus: sceneNumber === activeSceneNumber
+            ? 'pending_approval' as const
+            : sceneNumber < activeSceneNumber
+              ? 'approved' as const
+              : 'unrendered' as const,
+          chapterIndex: beat.chapterIndex,
+        };
+      });
+      if (records.length) return approvalProgress(records).text;
+      return `Scene ${activeSceneNumber} of ${displayBeats.length || pipeline.beatQueue.length} — awaiting your approval`;
     }
     if (pipeline?.status === 'complete') return 'All scenes approved. Continue to timeline stitch and publishing.';
-    return pipeline?.progressLabel ?? `Scene ${activeSceneNumber} of ${displayBeats.length}`;
-  }, [activeSceneNumber, displayBeats.length, pipeline, queueCommitted, scriptMismatch]);
+    if (!displayBeats.length) return 'Break the script into timed beats, review the draft once, then commit the scene queue.';
+    if (!queueCommitted) return `Review ${displayBeats.length} generated beats before committing the scene queue.`;
+    return pipeline?.progressLabel ?? 'Scene queue committed. Refine clips in Committed Scene Cards below.';
+  }, [activeSceneNumber, audioReady, displayBeats, episodeId, pipeline, queueCommitted, script]);
 
   const breakdownMutation = useMutation({
-    mutationFn: () =>
-      runPipelineBreakdown(moduleId, {
-        episodeKey,
-        episodeTitle: episodeTitle.trim() || 'Untitled episode',
-        script,
-        audioTimelineUrl,
-        targetBeatDurationSec: 10,
-      }),
-    onSuccess: (data) => {
-      setBeats(data.beats);
-      setReviewCommitted(false);
-      toast.success(`Generated ${data.beats.length} scene beats.`);
-      void queryClient.invalidateQueries({ queryKey: ['content', 'pipeline', moduleId, episodeKey] });
+    mutationFn: async () => {
+      if (!episodeId) throw new Error('Save the episode first.');
+      if (needsChapterSplit(script, runtimeTargetSeconds)) {
+        await splitEpisodeChapters(episodeId);
+      }
+      return breakEpisodeIntoBeats(episodeId);
     },
-    onError: () => toast.error('Could not break script into scene beats.'),
+    onSuccess: (data) => {
+      setDraftBeats(data.beats);
+      setFailedChapters(data.failedChapters ?? []);
+      setReviewCommitted(false);
+      if (data.failedChapters?.length) {
+        toast.error(`${data.failedChapters.length} chapter${data.failedChapters.length === 1 ? '' : 's'} failed. Retry those chapters before committing.`);
+      } else {
+        toast.success(`Generated ${data.beats.length} scene beats. Review them, then commit.`);
+      }
+      void queryClient.invalidateQueries({ queryKey: ['content', 'episodes'] });
+    },
+    onError: (error) => toast.error(apiErrorMessage(error, 'Could not break script into scene beats.')),
+  });
+
+  const retryChapterMutation = useMutation({
+    mutationFn: (chapterIndex: number) => {
+      if (!episodeId) throw new Error('Save the episode first.');
+      return breakEpisodeIntoBeats(episodeId, { chapterIndex, priorBeats: draftBeats });
+    },
+    onSuccess: (data, chapterIndex) => {
+      setDraftBeats(data.beats);
+      setFailedChapters(data.failedChapters ?? []);
+      if (data.failedChapters?.some((item) => item.chapterIndex === chapterIndex)) {
+        toast.error(`Chapter ${chapterIndex + 1} still failed.`);
+      } else {
+        toast.success(`Chapter ${chapterIndex + 1} beats ready.`);
+      }
+    },
+    onError: (error) => toast.error(apiErrorMessage(error, 'Could not retry that chapter.')),
   });
 
   const commitMutation = useMutation({
     mutationFn: () =>
-      commitPipelineBeats(moduleId, {
-        episodeKey,
-        beats: displayBeats,
-        reAnchorEveryN: 15,
+      commitEpisodeScenes(episodeId as string, {
+        beats: draftBeats,
+        selectedCharacters,
       }),
-    onSuccess: () => {
+    onSuccess: (result) => {
+      setDraftBeats([]);
+      setFailedChapters([]);
       setReviewCommitted(true);
-      onBeatsCommitted(beatsToSceneCards(displayBeats));
-      toast.success('Scene queue committed.');
-      void queryClient.invalidateQueries({ queryKey: ['content', 'pipeline', moduleId, episodeKey] });
+      onScenesCommitted(result.episode._id);
+      toast.success(`Scene queue committed (${result.sceneCount} scenes).`);
+      void queryClient.invalidateQueries({ queryKey: ['content', 'episodes'] });
+      void queryClient.invalidateQueries({ queryKey: ['content', 'episodes', moduleId] });
+      void queryClient.invalidateQueries({ queryKey: ['content', 'episodes', result.episode._id, 'scenes'] });
     },
-    onError: () => toast.error('Could not commit beat queue.'),
+    onError: (error) => toast.error(apiErrorMessage(error, 'Could not commit scene queue.')),
   });
 
   const generateMutation = useMutation({
@@ -117,7 +198,7 @@ export function EpisodePipelineFlow({
       void queryClient.invalidateQueries({ queryKey: ['content', 'pipeline', moduleId, episodeKey] });
       void queryClient.invalidateQueries({ queryKey: ['content', 'episodes'] });
     },
-    onError: () => toast.error('Scene generation failed.'),
+    onError: (error) => toast.error(apiErrorMessage(error, 'Scene generation failed.')),
   });
 
   const approvalMutation = useMutation({
@@ -128,15 +209,22 @@ export function EpisodePipelineFlow({
       setEditBeatDraft(null);
       void queryClient.invalidateQueries({ queryKey: ['content', 'pipeline', moduleId, episodeKey] });
     },
-    onError: () => toast.error('Could not record scene approval.'),
+    onError: (error) => toast.error(apiErrorMessage(error, 'Could not record scene approval.')),
   });
 
   function updateBeat(index: number, next: SceneBeat) {
-    setBeats((current) => {
-      const source = current.length > 0 ? current : displayBeats;
-      return source.map((beat) => (beat.beatIndex === index ? next : beat));
-    });
+    setDraftBeats((current) =>
+      current.map((beat) => (beat.order - 1 === index ? sceneBeatToDraft(next, beat) : beat)),
+    );
   }
+
+  const gateMessage = !episodeId
+    ? 'Save the episode in Section 1 first. Scene beats attach to a persisted episode, not an unsaved draft.'
+    : !audioReady
+      ? 'Generate or upload the full episode audio track in the Voice-Over panel before breaking the script into timed beats. Check “Episode audio finalized for beat breakdown” in the Voice-Over Control Panel.'
+      : !script.trim()
+        ? 'Add a Base Textual Prompt in Episode Initialization before breaking the script into scene beats.'
+        : null;
 
   return (
     <div className="space-y-5">
@@ -148,22 +236,16 @@ export function EpisodePipelineFlow({
         <p className="mt-3 text-xs font-semibold text-[var(--color-ash-brown)]">{progressLabel}</p>
       </div>
 
-      {scriptMismatch ? (
-        <div className="rounded-xl border border-[var(--color-faded-copper)]/50 bg-[var(--color-faded-copper)]/10 p-4 text-xs leading-relaxed text-[var(--color-ash-brown)]">
-          The saved pipeline belongs to a previous version of this episode script. Re-run breakdown so beats match your current Base Textual Prompt.
-        </div>
-      ) : null}
-
-      {!audioReady ? (
+      {gateMessage ? (
         <div className="rounded-xl border border-[var(--color-faded-copper)]/40 bg-white p-4 text-xs leading-relaxed text-muted">
-          Generate or upload the full episode audio track in the Voice-Over panel before breaking the script into timed beats.
+          {gateMessage}
         </div>
       ) : null}
 
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
-          disabled={!moduleId || !episodeKey || !script.trim() || !audioReady || breakdownMutation.isPending}
+          disabled={!canBreak || breakdownMutation.isPending || retryChapterMutation.isPending}
           onClick={() => breakdownMutation.mutate()}
           className="studio-touch-target-inline inline-flex items-center gap-2 rounded-xl bg-[var(--color-muted-olive)] px-4 py-2 text-sm font-semibold text-[var(--color-vanilla-cream)] disabled:opacity-45"
         >
@@ -173,7 +255,7 @@ export function EpisodePipelineFlow({
 
         <button
           type="button"
-          disabled={!displayBeats.length || queueCommitted || commitMutation.isPending}
+          disabled={!episodeId || !audioReady || !draftBeats.length || failedChapters.length > 0 || commitMutation.isPending}
           onClick={() => commitMutation.mutate()}
           className="inline-flex items-center gap-2 rounded-xl border border-[var(--color-muted-olive)] px-4 py-2 text-sm font-semibold text-[var(--color-ash-brown)] disabled:opacity-45"
         >
@@ -182,14 +264,37 @@ export function EpisodePipelineFlow({
         </button>
       </div>
 
-      <VirtualizedSceneBoard beats={displayBeats} editable={!queueCommitted} onChangeBeat={updateBeat} />
+      {failedChapters.length > 0 ? (
+        <div className="space-y-2">
+          {failedChapters.map((failed) => (
+            <div key={failed.chapterIndex} className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-[var(--color-faded-copper)]/50 bg-white p-4">
+              <p className="text-xs leading-relaxed text-[var(--color-ash-brown)]">
+                Chapter {failed.chapterIndex + 1} pending: {failed.error}
+              </p>
+              <button
+                type="button"
+                disabled={retryChapterMutation.isPending || breakdownMutation.isPending}
+                onClick={() => retryChapterMutation.mutate(failed.chapterIndex)}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-muted-olive)] px-3 py-1.5 text-xs font-semibold text-[var(--color-ash-brown)] disabled:opacity-45"
+              >
+                {retryChapterMutation.isPending && retryChapterMutation.variables === failed.chapterIndex
+                  ? <Loader2 size={13} className="animate-spin" />
+                  : <RefreshCw size={13} />}
+                Retry chapter
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : null}
 
-      {queueCommitted ? (
+      <VirtualizedSceneBoard beats={displayBeats} editable={draftBeats.length > 0} onChangeBeat={updateBeat} />
+
+      {queueCommitted && pipeline?.beatQueueCommitted ? (
         <div className="rounded-xl border border-border bg-white p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-sm font-semibold text-dark">Sequential scene generation</p>
-              <p className="mt-1 text-xs text-muted">Scene {activeSceneNumber} is active. Approve each clip before the next begins.</p>
+              <p className="mt-1 text-xs text-muted">{progressLabel}</p>
             </div>
             <button
               type="button"
@@ -197,14 +302,14 @@ export function EpisodePipelineFlow({
               onClick={() => generateMutation.mutate()}
               className="inline-flex items-center gap-2 rounded-lg bg-[var(--color-ash-brown)] px-3 py-2 text-xs font-semibold text-[var(--color-vanilla-cream)] disabled:opacity-45"
             >
-              {generateMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+              {generateMutation.isPending ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={14} />}
               Generate next scene
             </button>
           </div>
 
           {pipeline?.status === 'awaiting_approval' ? (
             <div className="mt-4 space-y-3 rounded-lg border border-[var(--color-tea-green)] p-3">
-              <p className="text-xs font-semibold text-dark">Scene {activeSceneNumber} is ready for review</p>
+              <p className="text-xs font-semibold text-dark">{progressLabel}</p>
               {editBeatDraft ? (
                 <textarea
                   className="input-field min-h-[90px] text-xs"
@@ -232,7 +337,7 @@ export function EpisodePipelineFlow({
                 <button
                   type="button"
                   onClick={() => {
-                    const beat = displayBeats[activeSceneNumber - 1];
+                    const beat = displayBeats[activeSceneNumber - 1] ?? pipeline.beatQueue[activeSceneNumber - 1];
                     if (!beat) return;
                     setEditBeatDraft(beat);
                   }}

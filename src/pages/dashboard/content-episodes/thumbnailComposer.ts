@@ -1,4 +1,6 @@
-﻿export type ThumbnailOverlayAlign = 'left' | 'center' | 'right';
+﻿import { resolveProtectedMediaUrl } from './protectedMedia';
+
+export type ThumbnailOverlayAlign = 'left' | 'center' | 'right';
 
 export interface ThumbnailOverlayOptions {
   imageUrl: string;
@@ -15,20 +17,47 @@ const OUTPUT_WIDTH = 1280;
 const OUTPUT_HEIGHT = 720;
 
 export async function composeEpisodeThumbnail(options: ThumbnailOverlayOptions): Promise<File> {
-  const image = await loadImage(options.imageUrl);
-  const canvas = document.createElement('canvas');
-  canvas.width = OUTPUT_WIDTH;
-  canvas.height = OUTPUT_HEIGHT;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('Could not prepare thumbnail canvas.');
+  const playableUrl = await resolveThumbnailSourceUrl(options.imageUrl);
+  const objectUrl = await materializeImageUrl(playableUrl);
+  try {
+    const image = await loadImage(objectUrl);
+    const canvas = document.createElement('canvas');
+    canvas.width = OUTPUT_WIDTH;
+    canvas.height = OUTPUT_HEIGHT;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Could not prepare thumbnail canvas.');
 
-  drawCoverImage(ctx, image, OUTPUT_WIDTH, OUTPUT_HEIGHT);
-  drawOverlay(ctx, options);
+    drawCoverImage(ctx, image, OUTPUT_WIDTH, OUTPUT_HEIGHT);
+    drawOverlay(ctx, options);
 
-  const blob = await new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob((value) => (value ? resolve(value) : reject(new Error('Could not export edited thumbnail.'))), 'image/png', 0.95);
-  });
-  return new File([blob], 'episode-thumbnail.png', { type: 'image/png' });
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((value) => (value ? resolve(value) : reject(new Error('Could not export edited thumbnail.'))), 'image/png', 0.95);
+    });
+    return new File([blob], 'episode-thumbnail.png', { type: 'image/png' });
+  } finally {
+    if (objectUrl.startsWith('blob:') && objectUrl !== options.imageUrl) {
+      URL.revokeObjectURL(objectUrl);
+    }
+  }
+}
+
+async function resolveThumbnailSourceUrl(imageUrl: string): Promise<string> {
+  if (imageUrl.startsWith('blob:') || imageUrl.startsWith('data:')) {
+    return imageUrl;
+  }
+  const playableUrl = await resolveProtectedMediaUrl(imageUrl);
+  if (!playableUrl) {
+    throw new Error('Could not load thumbnail image for editing.');
+  }
+  return playableUrl;
+}
+
+async function materializeImageUrl(url: string): Promise<string> {
+  if (url.startsWith('blob:') || url.startsWith('data:')) return url;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error('Could not load thumbnail image for editing.');
+  const blob = await response.blob();
+  return URL.createObjectURL(blob);
 }
 
 function loadImage(url: string): Promise<HTMLImageElement> {

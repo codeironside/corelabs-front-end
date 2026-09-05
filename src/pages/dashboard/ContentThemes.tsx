@@ -108,6 +108,7 @@ const EMPTY_AI_MODELS: AvailableAiModels = {
 };
 
 const CHARACTER_LIBRARY_MARKER = 'CHARACTER_REFERENCE_LIBRARY_JSON';
+const MAX_LOCKED_CHARACTER_REFERENCE_IMAGES = 3;
 const THEME_BUILDER_MARKER = 'THEME_BUILDER_JSON';
 
 function emptyThemeBuilder(): ThemeBuilderState {
@@ -194,12 +195,13 @@ function normalizeHandle(value: string, fallbackName = '') {
 }
 
 function uploadToCharacterImage(upload: MediaUploadResult, prompt: string, label: string): ThemeCharacterImage {
+  const storedUrl = upload.cloudinaryUrl || upload.s3Url;
   return {
     id: crypto.randomUUID(),
-    url: upload.cloudinaryUrl || upload.s3Url,
+    url: storedUrl,
     label,
     prompt,
-    s3Url: upload.s3Url,
+    s3Url: upload.s3Url || storedUrl,
     s3Key: upload.s3Key,
     publicId: upload.publicId,
   };
@@ -253,6 +255,10 @@ function themeDraftForStorage(builder: ThemeBuilderState): ThemeBuilderState {
   const normalized = normalizeThemeBuilder(builder);
   return {
     ...normalized,
+    characters: normalized.characters.map((character) => ({
+      ...character,
+      gallery: character.gallery.slice(0, MAX_LOCKED_CHARACTER_REFERENCE_IMAGES),
+    })),
     assets: normalized.assets.map((asset) => ({
       id: asset.id,
       name: asset.name,
@@ -556,16 +562,15 @@ export function ContentThemes({ themes }: { themes: ContentTheme[] }) {
   };
 
   useEffect(() => {
-    if (aiModels.image.length > 0 && characterImageModel && !aiModels.image.some((model) => model.value === characterImageModel)) {
-      setCharacterImageModel('');
-    }
-  }, [aiModels.image, characterImageModel]);
-
-  useEffect(() => {
-    if (aiModels.audio.length > 0 && characterTtsAudioModel && !aiModels.audio.some((model) => model.value === characterTtsAudioModel)) {
-      setCharacterTtsAudioModel('');
-    }
-  }, [aiModels.audio, characterTtsAudioModel]);
+    const nextAudio = aiModels.audio.some((model) => model.value === 'free:auto')
+      ? 'free:auto'
+      : aiModels.audio[0]?.value ?? 'free:auto';
+    if (characterTtsAudioModel !== nextAudio) setCharacterTtsAudioModel(nextAudio);
+    const nextImage = aiModels.image.some((model) => model.value === 'free:auto')
+      ? 'free:auto'
+      : aiModels.image[0]?.value ?? 'free:auto';
+    if (characterImageModel !== nextImage) setCharacterImageModel(nextImage);
+  }, [aiModels.audio, aiModels.image, characterImageModel, characterTtsAudioModel]);
 
   const previewCharacterTtsMut = useMutation({
     mutationFn: async ({ characterId }: { characterId: string }) => {
@@ -611,17 +616,23 @@ export function ContentThemes({ themes }: { themes: ContentTheme[] }) {
   }
 
   function canGenerateThemeCharacterImage(character: ThemeCharacter): boolean {
-    return Boolean(canSaveTheme && character.visualPrompt.trim() && characterImageModel);
+    return Boolean(canSaveTheme && character.visualPrompt.trim());
   }
 
   function handleSaveCharacterPreview(characterId: string) {
+    const target = builder.characters.find((character) => character.id === characterId);
+    if (!target?.preview) return;
+    if (target.gallery.length >= MAX_LOCKED_CHARACTER_REFERENCE_IMAGES) {
+      toast.error(`Each character keeps ${MAX_LOCKED_CHARACTER_REFERENCE_IMAGES} locked reference images. Remove a variant before adding another.`);
+      return;
+    }
     setBuilder((current) => ({
       ...current,
       characters: current.characters.map((character) => {
         if (character.id !== characterId || !character.preview) return character;
         return {
           ...character,
-          gallery: [...character.gallery, { ...character.preview, id: crypto.randomUUID() }],
+          gallery: [...character.gallery, { ...character.preview, id: crypto.randomUUID() }].slice(0, MAX_LOCKED_CHARACTER_REFERENCE_IMAGES),
         };
       }),
     }));
@@ -763,10 +774,10 @@ export function ContentThemes({ themes }: { themes: ContentTheme[] }) {
                   <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted">Character Factory {index + 1}</p>
-                      <p className="mt-1 text-xs text-muted">Build a reusable visual identity, then save multiple variants into this character&apos;s gallery.</p>
+                      <p className="mt-1 text-xs text-muted">Locked look: 1–3 reference stills plus Role, Motivations, Quirks, and Base visual prompt. Scene generation never writes back here — update the look only with an explicit edit.</p>
                     </div>
                     <span className="rounded-full bg-[var(--color-tea-green)]/40 px-2.5 py-1 text-[10px] font-semibold text-[var(--color-ash-brown)]">
-                      {character.gallery.length} saved variants
+                      {Math.min(character.gallery.length, MAX_LOCKED_CHARACTER_REFERENCE_IMAGES)} / {MAX_LOCKED_CHARACTER_REFERENCE_IMAGES} locked stills
                     </span>
                   </div>
                   <div className="grid gap-4 xl:grid-cols-[1fr_18rem]">
@@ -795,15 +806,8 @@ export function ContentThemes({ themes }: { themes: ContentTheme[] }) {
                         onPreview={(characterId) => previewCharacterTtsMut.mutate({ characterId })}
                         previewPending={previewCharacterTtsMut.isPending && previewCharacterTtsMut.variables?.characterId === character.id}
                       />
-                      <div className="grid gap-2 md:grid-cols-[1fr_auto]">
-                        <select className="input-field text-sm" value={characterImageModel} onChange={(e) => setCharacterImageModel(e.target.value)} disabled={aiModels.image.length === 0}>
-                          <option value="">{aiModels.image.length === 0 ? 'No image models available' : 'Select image model'}</option>
-                          {aiModels.image.map((model) => (
-                            <option key={model.value} value={model.value}>
-                              {model.providerLabel} {model.label}
-                            </option>
-                          ))}
-                        </select>
+                      <div className="grid gap-2">
+                        <p className="text-[11px] text-muted">Character image model is routed automatically.</p>
                         <button
                           type="button"
                           onClick={() => generateCharacterImageMut.mutate({ characterId: character.id })}

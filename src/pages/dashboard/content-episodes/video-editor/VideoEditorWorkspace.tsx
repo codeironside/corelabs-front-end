@@ -48,6 +48,11 @@ export function VideoEditorWorkspace({
   canRender,
   isRendering,
   renderDisabledReason,
+  canSequentialGenerate = false,
+  isSequentialGenerating = false,
+  sequentialDisabledReason = '',
+  approvalProgressText,
+  approvalBusy = false,
   soundEnabled,
   audioModel,
   videoModel,
@@ -74,6 +79,10 @@ export function VideoEditorWorkspace({
   onGenerateSceneTts,
   onReorderScene,
   onRenderMaster,
+  onSequentialGenerate,
+  onApproveScene,
+  onRetryScene,
+  onEditRetryScene,
   onVideoModelChange,
 }: VideoEditorWorkspaceProps) {
   const [aspectRatio, setAspectRatio] = useState<EditorAspectRatio>('9:16');
@@ -158,6 +167,9 @@ export function VideoEditorWorkspace({
               <p className="mt-1 max-w-3xl text-xs leading-relaxed text-muted">
                 Production-grade timeline workspace for AI clips, TTS, overlays, subtitles, stitching, and direct publishing handoff.
               </p>
+              {approvalProgressText ? (
+                <p className="mt-2 text-xs font-semibold text-[var(--color-ash-brown)]">{approvalProgressText}</p>
+              ) : null}
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {headerDestinations.map((destination) => (
                   <span key={destination} className="rounded-full bg-[var(--color-tea-green)]/35 px-2 py-1 text-[10px] font-semibold text-[var(--color-ash-brown)]">{destination}</span>
@@ -171,13 +183,19 @@ export function VideoEditorWorkspace({
             <span className="rounded-full bg-[var(--color-tea-green)]/35 px-3 py-2 text-xs font-semibold text-[var(--color-ash-brown)]">Tool: {activeTool}</span>
             <button
               type="button"
-              onClick={renderWithTimeline}
-              disabled={!canRender || isRendering}
+              onClick={() => {
+                if (onSequentialGenerate) onSequentialGenerate();
+                else renderWithTimeline();
+              }}
+              disabled={onSequentialGenerate ? (!canSequentialGenerate || isSequentialGenerating || isRendering) : (!canRender || isRendering)}
               className="studio-touch-target-inline inline-flex items-center gap-2 rounded-xl bg-[var(--color-ash-brown)] px-4 py-2 text-sm font-semibold text-[var(--color-vanilla-cream)] shadow-sm disabled:opacity-45"
             >
-              {isRendering ? <Loader2 size={15} className="animate-spin" /> : <Play size={15} />}
+              {isRendering || isSequentialGenerating ? <Loader2 size={15} className="animate-spin" /> : <Play size={15} />}
               Render and Stitch Full Episode
             </button>
+            {onSequentialGenerate && sequentialDisabledReason ? (
+              <p className="w-full text-right text-[11px] leading-relaxed text-[var(--color-faded-copper)]">{sequentialDisabledReason}</p>
+            ) : null}
           </div>
         </div>
       </div>
@@ -192,6 +210,10 @@ export function VideoEditorWorkspace({
           assets={assets}
           moduleDestinations={moduleDestinations}
           onSelectScene={onSelectScene}
+          onApproveScene={onApproveScene}
+          onRetryScene={onRetryScene}
+          onEditRetryScene={onEditRetryScene}
+          approvalBusy={approvalBusy}
         />
 
         <main className="min-w-0 border-b border-border xl:border-b-0">
@@ -309,6 +331,8 @@ export function VideoEditorWorkspace({
           onGenerateSceneVideo={onGenerateSceneVideo}
           onGenerateSceneTts={onGenerateSceneTts}
           onUpdateScene={onUpdateScene}
+          onApproveScene={onApproveScene}
+          onRetryScene={onRetryScene}
           onRenderMaster={renderWithTimeline}
         />
       </div>

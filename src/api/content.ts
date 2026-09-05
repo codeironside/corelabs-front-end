@@ -66,6 +66,8 @@ export interface VideoTake {
 export interface ContentModule {
   _id: string;
   title: string;
+  name?: string;
+  userId?: string;
   themeLine: string;
   genre: string;
   creativePrompt: string;
@@ -97,6 +99,20 @@ export interface ContentModule {
   updatedAt: string;
 }
 
+export interface EpisodeCoverImage {
+  url?: string;
+  source?: "author_upload" | "ai_generated";
+  title_overlay?: string;
+  generatedAt?: string;
+}
+
+export interface EpisodePublishingPlatform {
+  platform: "youtube" | "tiktok" | "instagram";
+  status: "not_published" | "published";
+  externalUrl?: string;
+  publishedAt?: string;
+}
+
 export interface ContentEpisode {
   _id: string;
   moduleId: string;
@@ -107,11 +123,33 @@ export interface ContentEpisode {
   generationModel: string;
   videoProvider?: "kling" | "openai" | "veo" | "xai";
   durationSeconds: number;
+  runtimeTargetSeconds?: number;
   soundEnabled: boolean;
-  status: "draft" | "queued" | "generating" | "ready" | "failed" | "published";
+  status:
+    | "draft"
+    | "breaking_down"
+    | "scenes_ready"
+    | "generating"
+    | "review"
+    | "queued"
+    | "ready"
+    | "failed"
+    | "published";
   progress?: { phase?: string; scene?: number; totalScenes?: number; pct?: number };
   thumbnailLabel?: string;
   thumbnailUrl?: string;
+  coverImage?: EpisodeCoverImage;
+  audio?: { finalized?: boolean; trackUrl?: string; durationSeconds?: number; source?: "tts" | "upload" };
+  publishing?: { platforms?: EpisodePublishingPlatform[] };
+  chapters?: Array<{
+    chapterIndex: number;
+    chapterText: string;
+    estimatedSeconds: number;
+    storySummary?: string | null;
+  }>;
+  sceneCount?: number;
+  reAnchorIntervalScenes?: number;
+  masterAssetUrl?: string;
   episodeVideoUrl?: string;
   masterVideoCloudinaryUrl?: string;
   masterVideoS3Url?: string;
@@ -133,14 +171,30 @@ export interface ContentEpisodeScene {
   episodeId: string;
   moduleId: string;
   sceneNumber: number;
+  order?: number;
+  chapterIndex?: number;
+  chapterLabel?: string;
   startSec: number;
   endSec: number;
+  startSeconds?: number;
+  endSeconds?: number;
   voiceOver: string;
+  voiceoverText?: string;
   visualPrompt: string;
+  beatDescription?: string;
   characterHandles: string[];
+  charactersPresent?: string[];
   referenceAssets?: Array<{ name: string; tag?: string; url?: string; s3Url?: string; s3Key?: string; publicId?: string; characterHandle?: string }>;
   provider?: "kling" | "openai" | "veo" | "xai";
-  status: "queued" | "generating" | "ready" | "failed";
+  status:
+    | "unrendered"
+    | "generating"
+    | "pending_approval"
+    | "approved"
+    | "rejected"
+    | "queued"
+    | "ready"
+    | "failed";
   taskId?: string;
   videoUrl?: string;
   cloudinaryUrl?: string;
@@ -149,6 +203,7 @@ export interface ContentEpisodeScene {
   publicId?: string;
   ttsAudioUrl?: string;
   ttsLabel?: string;
+  audioSegmentUrl?: string;
   voiceProfile?: string;
   ttsLines?: Array<{
     id: string;
@@ -163,7 +218,20 @@ export interface ContentEpisodeScene {
     label?: string;
     audioModel?: string;
   }>;
+  generationContext?: {
+    selectedCharacterRefIds?: string[];
+    characterMentions?: string[];
+    [key: string]: unknown;
+  };
   error?: string;
+  lastFrameUrl?: string;
+  generationStartedAt?: string;
+  updatedAt?: string;
+  rejectionHistory?: Array<{
+    reason?: string;
+    editedBeat?: string;
+    rejectedAt: string;
+  }>;
 }
 
 export interface ContentTheme {
@@ -198,7 +266,7 @@ export interface SocialPost {
 export interface AiModelOption {
   value: string;
   label: string;
-  provider: "openai" | "anthropic" | "google" | "xai" | "kling" | "elevenlabs";
+  provider: "openai" | "anthropic" | "google" | "xai" | "kling" | "elevenlabs" | "studio";
   providerLabel: string;
 }
 
@@ -227,15 +295,20 @@ export type ContentStudioDraftKind = "module" | "theme" | "episode";
 
 export interface ContentStudioDraft<T = unknown> {
   kind: ContentStudioDraftKind;
+  moduleId?: string | null;
   payload: T | null;
   updatedAt: string | null;
 }
 
 export const getContentStudioDraft = async <T>(
   kind: ContentStudioDraftKind,
+  options?: { moduleId?: string },
 ): Promise<ContentStudioDraft<T>> => {
   const { data } = await apiClient.get<ApiResponse<ContentStudioDraft<T>>>(
     `/content/drafts/${kind}`,
+    {
+      params: kind === "episode" && options?.moduleId ? { moduleId: options.moduleId } : undefined,
+    },
   );
   return data.data;
 };
@@ -243,10 +316,19 @@ export const getContentStudioDraft = async <T>(
 export const saveContentStudioDraft = async <T extends Record<string, unknown>>(
   kind: ContentStudioDraftKind,
   payload: T,
+  options?: { moduleId?: string },
 ): Promise<ContentStudioDraft<T>> => {
+  const moduleId =
+    kind === "episode"
+      ? options?.moduleId ||
+        (typeof payload.moduleId === "string" ? payload.moduleId : undefined)
+      : undefined;
   const { data } = await apiClient.put<ApiResponse<ContentStudioDraft<T>>>(
     `/content/drafts/${kind}`,
     { payload },
+    {
+      params: moduleId ? { moduleId } : undefined,
+    },
   );
   return data.data;
 };
@@ -510,6 +592,7 @@ export const improveEpisodeScene = async (payload: {
 
 export const generateEpisodeSceneVideo = async (payload: {
   moduleId: string;
+  episodeId?: string;
   title: string;
   basePrompt: string;
   model: string;
@@ -588,6 +671,7 @@ export interface EpisodeTimelineRenderResult {
 
 export const renderEpisodeTimeline = async (payload: {
   moduleId: string;
+  episodeId?: string;
   title: string;
   basePrompt?: string;
   durationSeconds: number;
@@ -627,14 +711,14 @@ export const renderEpisodeTimeline = async (payload: {
   return data.data;
 };
 
-export const listContentEpisodes = async (params?: {
-  moduleId?: string;
+export const listContentEpisodes = async (params: {
+  moduleId: string;
   status?: ContentEpisode["status"];
 }): Promise<ContentEpisode[]> => {
   const { data } = await apiClient.get<
     ApiResponse<{ episodes: ContentEpisode[] }>
   >("/content/episodes", { params });
-  return data.data.episodes;
+  return data.data.episodes.filter((episode) => String(episode.moduleId) === String(params.moduleId));
 };
 
 export const getContentEpisode = async (
@@ -643,6 +727,261 @@ export const getContentEpisode = async (
   const { data } = await apiClient.get<
     ApiResponse<{ episode: ContentEpisode; scenes: ContentEpisodeScene[] }>
   >(`/content/episodes/${id}`);
+  return data.data;
+};
+
+export const createContentEpisode = async (payload: {
+  moduleId: string;
+  title: string;
+  basePrompt?: string;
+  runtimeTargetSeconds?: number;
+  durationSeconds?: number;
+  soundEnabled?: boolean;
+  outputMode?: "text" | "media";
+  coverImage?: EpisodeCoverImage;
+  audio?: { finalized?: boolean; trackUrl?: string; durationSeconds?: number; source?: "tts" | "upload" };
+  episodeKey?: string;
+  reAnchorIntervalScenes?: number;
+}): Promise<ContentEpisode> => {
+  const { data } = await apiClient.post<ApiResponse<{ episode: ContentEpisode }>>(
+    "/content/episodes",
+    payload,
+  );
+  return data.data.episode;
+};
+
+export const updateContentEpisode = async (
+  id: string,
+  payload: Partial<{
+    title: string;
+    basePrompt: string;
+    runtimeTargetSeconds: number;
+    durationSeconds: number;
+    soundEnabled: boolean;
+    outputMode: "text" | "media";
+    coverImage: EpisodeCoverImage;
+    audio: { finalized?: boolean; trackUrl?: string | null; durationSeconds?: number; source?: "tts" | "upload" };
+    status: ContentEpisode["status"];
+    episodeKey: string;
+    reAnchorIntervalScenes: number;
+  }>,
+): Promise<ContentEpisode> => {
+  const { data } = await apiClient.patch<ApiResponse<{ episode: ContentEpisode }>>(
+    `/content/episodes/${id}`,
+    payload,
+  );
+  return data.data.episode;
+};
+
+export const generateEpisodeNarrationTrack = async (
+  episodeId: string,
+  body: {
+    model?: string;
+    voiceProfile: string;
+    tonePreset?: string;
+    toneDirection?: string;
+  },
+): Promise<{ episode: ContentEpisode; trackUrl: string; durationSeconds: number }> => {
+  const { data } = await apiClient.post<
+    ApiResponse<{ episode: ContentEpisode; trackUrl: string; durationSeconds: number }>
+  >(`/content/episodes/${episodeId}/audio/generate-track`, body, { timeout: 600_000 });
+  return data.data;
+};
+
+export const uploadEpisodeNarrationTrack = async (
+  episodeId: string,
+  file: File,
+): Promise<{ episode: ContentEpisode; trackUrl: string; durationSeconds: number }> => {
+  const form = new FormData();
+  form.append("audio", file);
+  const { data } = await apiClient.post<
+    ApiResponse<{ episode: ContentEpisode; trackUrl: string; durationSeconds: number }>
+  >(`/content/episodes/${episodeId}/audio/upload-track`, form, {
+    headers: { "Content-Type": "multipart/form-data" },
+    timeout: 180_000,
+  });
+  return data.data;
+};
+
+export const deleteContentEpisode = async (id: string): Promise<void> => {
+  await apiClient.delete(`/content/episodes/${id}`);
+};
+
+export const recordEpisodePublishingPlatform = async (
+  id: string,
+  payload: {
+    platform: "youtube" | "tiktok" | "instagram";
+    externalUrl?: string;
+    status?: "not_published" | "published";
+  },
+): Promise<ContentEpisode> => {
+  const { data } = await apiClient.post<
+    ApiResponse<{ episode: ContentEpisode }>
+  >(`/content/episodes/${id}/publishing/platforms`, payload);
+  return data.data.episode;
+};
+
+export type DraftSceneBeat = {
+  order: number;
+  startSeconds: number;
+  endSeconds: number;
+  beatDescription: string;
+  characterMentions: string[];
+  chapterIndex?: number;
+  breakdownStatus?: "ready" | "failed" | "pending";
+};
+
+export type FailedChapter = {
+  chapterIndex: number;
+  error: string;
+};
+
+export type EpisodeCharacterSelectorChoice = {
+  id: string;
+  characterId?: string;
+  handle?: string;
+  name?: string;
+};
+
+export const splitEpisodeChapters = async (
+  episodeId: string,
+): Promise<{
+  episode: ContentEpisode;
+  chapters: NonNullable<ContentEpisode["chapters"]>;
+  blockCount: number;
+}> => {
+  const { data } = await apiClient.post<
+    ApiResponse<{
+      episode: ContentEpisode;
+      chapters: NonNullable<ContentEpisode["chapters"]>;
+      blockCount: number;
+    }>
+  >(`/content/episodes/${episodeId}/split-chapters`, {}, { timeout: 600_000 });
+  return data.data;
+};
+
+export const breakEpisodeIntoBeats = async (
+  episodeId: string,
+  body?: { chapterIndex?: number; priorBeats?: DraftSceneBeat[] },
+): Promise<{
+  beats: DraftSceneBeat[];
+  failedChapters: FailedChapter[];
+  episodeId: string;
+  status: string;
+}> => {
+  const { data } = await apiClient.post<
+    ApiResponse<{
+      beats: DraftSceneBeat[];
+      failedChapters: FailedChapter[];
+      episodeId: string;
+      status: string;
+    }>
+  >(`/content/episodes/${episodeId}/break-into-beats`, body ?? {}, { timeout: 600_000 });
+  return data.data;
+};
+
+export const commitEpisodeScenes = async (
+  episodeId: string,
+  body: {
+    beats: DraftSceneBeat[];
+    selectedCharacters?: EpisodeCharacterSelectorChoice[];
+  },
+): Promise<{ episode: ContentEpisode; sceneCount: number; scenes: ContentEpisodeScene[] }> => {
+  const { data } = await apiClient.post<
+    ApiResponse<{ episode: ContentEpisode; sceneCount: number; scenes: ContentEpisodeScene[] }>
+  >(`/content/episodes/${episodeId}/commit-scenes`, body);
+  return data.data;
+};
+
+export const listContentEpisodeScenes = async (
+  episodeId: string,
+): Promise<ContentEpisodeScene[]> => {
+  const { data } = await apiClient.get<ApiResponse<{ scenes: ContentEpisodeScene[] }>>(
+    `/content/episodes/${episodeId}/scenes`,
+  );
+  return data.data.scenes;
+};
+
+export const startSequentialEpisodeGeneration = async (
+  episodeId: string,
+  body?: { model?: string },
+): Promise<{
+  episode: ContentEpisode;
+  scene?: ContentEpisodeScene;
+  takeEpisodeId?: string;
+  status: string;
+}> => {
+  const { data } = await apiClient.post<
+    ApiResponse<{
+      episode: ContentEpisode;
+      scene?: ContentEpisodeScene;
+      takeEpisodeId?: string;
+      status: string;
+    }>
+  >(`/content/episodes/${episodeId}/scenes/generate-next`, body ?? {}, { timeout: 600_000 });
+  return data.data;
+};
+
+export const approveEpisodeScene = async (
+  episodeId: string,
+  sceneId: string,
+  body?: { model?: string },
+): Promise<{
+  episode: ContentEpisode;
+  scene: ContentEpisodeScene;
+  nextScene?: ContentEpisodeScene;
+  startedNext: boolean;
+}> => {
+  const { data } = await apiClient.patch<
+    ApiResponse<{
+      episode: ContentEpisode;
+      scene: ContentEpisodeScene;
+      nextScene?: ContentEpisodeScene;
+      startedNext: boolean;
+    }>
+  >(`/content/episodes/${episodeId}/scenes/${sceneId}/approve`, body ?? {}, { timeout: 600_000 });
+  return data.data;
+};
+
+export const regenerateEpisodeScene = async (
+  episodeId: string,
+  sceneId: string,
+  body: { reason: "retry" | "edited"; editedBeat?: string; model?: string },
+): Promise<{
+  episode: ContentEpisode;
+  scene: ContentEpisodeScene;
+  takeEpisodeId?: string;
+  status: string;
+}> => {
+  const { data } = await apiClient.post<
+    ApiResponse<{
+      episode: ContentEpisode;
+      scene: ContentEpisodeScene;
+      takeEpisodeId?: string;
+      status: string;
+    }>
+  >(`/content/episodes/${episodeId}/scenes/${sceneId}/regenerate`, body, { timeout: 600_000 });
+  return data.data;
+};
+
+export const createContentEpisodeScene = async (
+  episodeId: string,
+  payload: {
+    order?: number;
+    chapterIndex?: number;
+    startSeconds: number;
+    endSeconds: number;
+    beatDescription?: string;
+    voiceoverText?: string;
+    characterHandles?: string[];
+    charactersPresent?: string[];
+    status?: ContentEpisodeScene["status"];
+    generationContext?: Record<string, unknown>;
+  },
+): Promise<{ episode: ContentEpisode; scene: ContentEpisodeScene }> => {
+  const { data } = await apiClient.post<
+    ApiResponse<{ episode: ContentEpisode; scene: ContentEpisodeScene }>
+  >(`/content/episodes/${episodeId}/scenes`, payload);
   return data.data;
 };
 
@@ -1161,8 +1500,10 @@ export const runPipelineBreakdown = async (
 export const commitPipelineBeats = async (
   moduleId: string,
   body: PipelineEpisodeRequest & { beats: SceneBeat[]; reAnchorEveryN?: number },
-): Promise<{ totalBeats: number }> => {
-  const { data } = await apiClient.post<ApiResponse<{ totalBeats: number }>>(
+): Promise<{ totalBeats: number; episodeId?: string; scenes?: Array<{ _id: string; order: number }> }> => {
+  const { data } = await apiClient.post<
+    ApiResponse<{ totalBeats: number; episodeId?: string; scenes?: Array<{ _id: string; order: number }> }>
+  >(
     `/content/modules/${moduleId}/pipeline/beats/commit`,
     body,
   );

@@ -42,6 +42,21 @@ async function issueProtectedStreamUrl(normalized: string): Promise<string> {
   return streamUrl;
 }
 
+function canUseDirectMediaUrl(url: string): boolean {
+  try {
+    const host = new URL(url).hostname;
+    if (host === 'firebasestorage.googleapis.com' || host === 'storage.googleapis.com') {
+      return false;
+    }
+    if (host.endsWith('.firebasestorage.app') || host.endsWith('.appspot.com')) {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function resolveProtectedMediaUrl(originUrl: string | undefined): Promise<string | undefined> {
   const direct = directStudioMediaUrl(originUrl);
   if (!direct) return undefined;
@@ -49,7 +64,7 @@ export async function resolveProtectedMediaUrl(originUrl: string | undefined): P
   try {
     return await issueProtectedStreamUrl(direct);
   } catch {
-    return direct;
+    return canUseDirectMediaUrl(direct) ? direct : undefined;
   }
 }
 
@@ -102,9 +117,11 @@ export function useProtectedMediaSrc(originUrl: string | undefined): {
       })
       .catch(() => {
         if (cancelled) return;
-        setSrc(directStudioMediaUrl(originUrl));
+        const fallback = directStudioMediaUrl(originUrl);
+        const usable = fallback && canUseDirectMediaUrl(fallback) ? fallback : undefined;
+        setSrc(usable);
         setLoading(false);
-        setError(false);
+        setError(!usable);
       });
 
     return () => {

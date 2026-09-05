@@ -56,7 +56,9 @@ export function ClipInspectorPanel({
   onImproveScene,
   onGenerateSceneVideo,
   onGenerateSceneTts,
-  onUpdateScene,
+  onUpdateScene: _onUpdateScene,
+  onApproveScene,
+  onRetryScene,
   onRenderMaster,
 }: {
   selectedScene?: EpisodeSceneCard;
@@ -78,6 +80,8 @@ export function ClipInspectorPanel({
   onGenerateSceneVideo: (scene: EpisodeSceneCard) => void;
   onGenerateSceneTts: (sceneId: string) => void;
   onUpdateScene: (sceneId: string, patch: Partial<EpisodeSceneCard>) => void;
+  onApproveScene?: (scene: EpisodeSceneCard) => void;
+  onRetryScene?: (scene: EpisodeSceneCard) => void;
   onRenderMaster: (options?: TimelineRenderOptions) => void;
 }) {
   return (
@@ -151,9 +155,19 @@ export function ClipInspectorPanel({
               <button type="button" onClick={() => onGenerateSceneTts(selectedScene.id)} disabled={sceneIsGeneratingTts(selectedScene) || (!sceneHasReadyTts(selectedScene) && (!audioModel || !ensureSceneTtsLines(selectedScene).some((line) => line.text.trim())))} className="inline-flex items-center justify-center gap-2 rounded-xl border border-border px-3 py-2 text-xs font-semibold text-dark disabled:opacity-45">
                 <Volume2 size={14} /> {sceneHasReadyTts(selectedScene) ? 'Add dialogue to timeline' : 'Generate first line'}
               </button>
-              <button type="button" onClick={() => onUpdateScene(selectedScene.id, { approved: !selectedScene.approved })} className="inline-flex items-center justify-center gap-2 rounded-xl border border-border px-3 py-2 text-xs font-semibold text-dark">
-                <CheckCircle2 size={14} /> {selectedScene.approved ? 'Unapprove Scene' : 'Approve Scene'}
-              </button>
+              {selectedScene.catalogStatus === 'pending_approval' && onApproveScene ? (
+                <button type="button" onClick={() => onApproveScene(selectedScene)} className="inline-flex items-center justify-center gap-2 rounded-xl border border-[var(--color-muted-olive)] px-3 py-2 text-xs font-semibold text-[var(--color-ash-brown)]">
+                  <CheckCircle2 size={14} /> Approve Scene
+                </button>
+              ) : selectedScene.catalogStatus === 'approved' ? (
+                <span className="inline-flex items-center justify-center gap-2 rounded-xl border border-[var(--color-muted-olive)] px-3 py-2 text-xs font-semibold text-[var(--color-muted-olive)]">
+                  <CheckCircle2 size={14} /> Approved
+                </span>
+              ) : (selectedScene.catalogStatus === 'failed' || selectedScene.catalogStatus === 'rejected') && onRetryScene ? (
+                <button type="button" onClick={() => onRetryScene(selectedScene)} className="inline-flex items-center justify-center gap-2 rounded-xl border border-border px-3 py-2 text-xs font-semibold text-dark">
+                  <RefreshCcw size={14} /> Retry scene
+                </button>
+              ) : null}
             </div>
           </div>
         ) : (

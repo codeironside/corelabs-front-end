@@ -148,9 +148,13 @@ export function ModuleDashboard({ module, themes }: ModuleDashboardProps) {
     enabled: shouldPollCoverVideo,
     refetchInterval: shouldPollCoverVideo ? 5000 : false,
   });
+  const scopedModuleEpisodes = useMemo(
+    () => moduleEpisodes.filter((episode) => episode.moduleId === module._id && !episode.sceneOnly),
+    [module._id, moduleEpisodes],
+  );
   const activeModuleEpisodes = useMemo(
-    () => moduleEpisodes.filter((episode) => ['queued', 'generating', 'ready', 'published'].includes(episode.status)),
-    [moduleEpisodes],
+    () => scopedModuleEpisodes.filter((episode) => ['queued', 'generating', 'ready', 'published'].includes(episode.status)),
+    [scopedModuleEpisodes],
   );
   const themeOptions: SelectOption<string>[] = [
     { value: '', label: 'No linked theme' },
@@ -207,8 +211,10 @@ export function ModuleDashboard({ module, themes }: ModuleDashboardProps) {
   }, [coverStatus, coverVideoUrl, module._id, queryClient]);
 
   useEffect(() => {
-    const firstImageModel = aiModels?.image[0]?.value;
-    if (!coverImageModel && firstImageModel) setCoverImageModel(firstImageModel);
+    const autoImage = aiModels?.image?.some((m) => m.value === 'free:auto')
+      ? 'free:auto'
+      : aiModels?.image[0]?.value;
+    if (!coverImageModel && autoImage) setCoverImageModel(autoImage);
     const firstVideoModel = aiModels?.video[0]?.value;
     if (!coverVideoModel && firstVideoModel) setCoverVideoModel(firstVideoModel);
   }, [aiModels?.image, aiModels?.video, coverImageModel, coverVideoModel]);
@@ -301,7 +307,7 @@ export function ModuleDashboard({ module, themes }: ModuleDashboardProps) {
       value: model.value,
       label: `${model.providerLabel} - ${model.label}`,
     }));
-  const canGenerateCoverImage = Boolean(coverPrompt.trim() && coverImageModel);
+  const canGenerateCoverImage = Boolean(coverPrompt.trim());
   const canGenerateCoverVideo = Boolean(coverVideoPrompt.trim() && coverVideoModel);
   const latestRenderedModuleVideo = module.masterVideoS3Url ?? module.masterVideoCloudinaryUrl ?? module.videoUrl ?? '';
 
@@ -510,14 +516,7 @@ export function ModuleDashboard({ module, themes }: ModuleDashboardProps) {
                 <FieldShell label="Cover Image Prompt">
                   <textarea className="input-field min-h-[120px] text-sm" value={coverPrompt} onChange={(event) => setCoverPrompt(event.target.value)} />
                 </FieldShell>
-                <FieldShell label="Image Model">
-                  <Select
-                    aria-label="Module cover image model"
-                    value={coverImageModel}
-                    options={imageModelOptions}
-                    onChange={(value) => setCoverImageModel(String(value))}
-                  />
-                </FieldShell>
+                <p className="text-xs text-muted">Image model is chosen automatically by Studio adapters.</p>
                 <button
                   type="button"
                   onClick={() => coverImageMut.mutate()}
@@ -592,14 +591,7 @@ export function ModuleDashboard({ module, themes }: ModuleDashboardProps) {
                     )}
                   </div>
                 </FieldShell>
-                <FieldShell label="Cover Video Model">
-                  <Select
-                    aria-label="Module cover video model"
-                    value={coverVideoModel}
-                    options={videoModelOptions}
-                    onChange={(value) => setCoverVideoModel(String(value))}
-                  />
-                </FieldShell>
+                <p className="text-xs text-muted">Video model is chosen automatically from configured providers.</p>
                 <div className="flex flex-wrap gap-2">
                   <button type="button" onClick={saveCoverMedia} disabled={updateMut.isPending} className="inline-flex items-center gap-2 rounded-xl bg-[var(--color-muted-olive)] px-4 py-2 text-sm font-semibold text-[var(--color-vanilla-cream)] disabled:opacity-45">
                     <Save size={16} /> Save cover media

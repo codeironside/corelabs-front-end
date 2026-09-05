@@ -1,4 +1,4 @@
-import type { ContentTheme } from '@/api/content';
+import type { ContentEpisodeScene, ContentTheme } from '@/api/content';
 
 export type ThemeCharacterReference = {
   id: string;
@@ -38,6 +38,7 @@ export type EpisodeSceneCard = {
   ttsStatus: 'idle' | 'generating' | 'ready';
   ttsAudioUrl?: string;
   ttsLabel?: string;
+  audioSegmentUrl?: string;
   voiceProfile?: string;
   ttsLines?: Array<{
     id: string;
@@ -53,13 +54,16 @@ export type EpisodeSceneCard = {
     label?: string;
   }>;
   selectedCharacterRefIds?: string[];
-  sceneVideoStatus?: 'idle' | 'generating' | 'ready' | 'failed';
+  catalogStatus?: ContentEpisodeScene['status'];
+  sceneVideoStatus?: 'idle' | 'generating' | 'pending_approval' | 'ready' | 'failed';
   sceneVideoUrl?: string;
   sceneVideoTakeId?: string;
   episodeSceneDocId?: string;
   sceneVideoAudioEnabled?: boolean;
   chapterIndex?: number;
   chapterTitle?: string;
+  generationStartedAt?: string;
+  updatedAt?: string;
 };
 
 const CHARACTER_LIBRARY_MARKER = 'CHARACTER_REFERENCE_LIBRARY_JSON';
@@ -163,6 +167,10 @@ export function parseThemeCharacterReferences(theme?: ContentTheme): ThemeCharac
     return (parsed.characters ?? []).flatMap((character, characterIndex) => {
       const handle = handleForCharacter(character, characterIndex);
       return (character.gallery ?? [])
+        .map((image) => ({
+          ...image,
+          url: image.url?.trim() || image.s3Url?.trim() || '',
+        }))
         .filter((image) => Boolean(image.url))
         .map((image, imageIndex) => ({
           id: `${character.id || characterIndex}:${image.id || imageIndex}`,
@@ -170,7 +178,7 @@ export function parseThemeCharacterReferences(theme?: ContentTheme): ThemeCharac
           handle,
           name: character.name || handle,
           label: image.label || `${handle} variant ${imageIndex + 1}`,
-          url: image.url as string,
+          url: image.url,
           s3Url: image.s3Url,
           s3Key: image.s3Key,
           publicId: image.publicId,
@@ -240,6 +248,22 @@ export function sceneCountForDuration(seconds: number) {
   return Math.max(1, Math.ceil(seconds / 10));
 }
 
+export function formatEpisodeRuntimeLabel(seconds: number): string {
+  if (seconds >= 3600 && seconds % 3600 === 0) return `${seconds / 3600}h`;
+  if (seconds >= 60 && seconds % 60 === 0) return `${seconds / 60}m`;
+  if (seconds >= 3600) {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.round((seconds % 3600) / 60);
+    return minutes ? `${hours}h ${minutes}m` : `${hours}h`;
+  }
+  if (seconds >= 60) {
+    const minutes = Math.floor(seconds / 60);
+    const remainder = seconds % 60;
+    return remainder ? `${minutes}m ${remainder}s` : `${minutes}m`;
+  }
+  return `${seconds}s`;
+}
+
 export function timestamp(seconds: number) {
   const mins = Math.floor(seconds / 60);
   const secs = seconds % 60;
@@ -274,8 +298,8 @@ export function createSceneCard(
     endSec: startSec + 10,
     voiceOver: seed
       ? `Scene ${index + 1}: ${seed}`
-      : `Scene ${index + 1}: Write the voice-over for this 10-second beat.`,
-    visualPrompt: `${handleText}${handleText ? ' - ' : ''}Describe camera, setting, action, mood, and continuity for this 10-second scene.`,
+      : `Scene ${index + 1}: Write the voice-over for this scene.`,
+    visualPrompt: `${handleText}${handleText ? ' - ' : ''}Describe camera, setting, action, mood, and continuity for this scene.`,
     characterHandles: handles,
     approved: false,
     ttsStatus: 'idle',
@@ -285,7 +309,7 @@ export function createSceneCard(
       id: crypto.randomUUID(),
       text: seed
         ? `Scene ${index + 1}: ${seed}`
-        : `Scene ${index + 1}: Write the voice-over for this 10-second beat.`,
+        : `Scene ${index + 1}: Write the voice-over for this scene.`,
       voiceProfile: defaultVoiceProfile,
       status: 'idle',
     }],

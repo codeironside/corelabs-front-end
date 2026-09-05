@@ -71,6 +71,12 @@ export function HeroSection(): React.JSX.Element {
               {link.label}
             </a>
           ))}
+          <Link
+            to="/stories"
+            className="rounded-full px-5 py-2 text-sm text-neutral-300 transition-colors hover:text-white"
+          >
+            stories
+          </Link>
         </div>
 
         <HeaderCta />

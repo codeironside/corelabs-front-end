@@ -52,6 +52,8 @@ async function refreshAccessToken(): Promise<string | null> {
   }
 }
 
+type RetryableRequestConfig = InternalAxiosRequestConfig & { __retried?: boolean };
+
 studioClient.interceptors.response.use(
   (response) => response,
   async (error: unknown) => {
@@ -59,8 +61,8 @@ studioClient.interceptors.response.use(
       throw error;
     }
 
-    const original = error.config;
-    if (!original || original.headers['X-Retry'] === '1') {
+    const original = error.config as RetryableRequestConfig | undefined;
+    if (!original || original.__retried) {
       useAuthStore.getState().logout();
       throw error;
     }
@@ -76,8 +78,8 @@ studioClient.interceptors.response.use(
       throw error;
     }
 
+    original.__retried = true;
     original.headers.Authorization = `Bearer ${nextToken}`;
-    original.headers['X-Retry'] = '1';
     return studioClient.request(original);
   },
 );

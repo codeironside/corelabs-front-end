@@ -1,8 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import type { SceneBeat } from '@/api/content';
 import { groupBeatsByChapter } from './episodePipeline';
 
-const PAGE_SIZE = 24;
+type BeatBoardRow =
+  | { kind: 'header'; chapterIndex: number; title: string; beatCount: number }
+  | { kind: 'beat'; beat: SceneBeat };
 
 function BeatCard({
   beat,
@@ -14,7 +17,7 @@ function BeatCard({
   onChangeBeat: (index: number, next: SceneBeat) => void;
 }): React.JSX.Element {
   return (
-    <div className="rounded-lg border border-border p-3 min-w-[16rem]">
+    <div className="rounded-lg border border-border bg-white p-3">
       <div className="mb-2 flex items-center justify-between gap-2">
         <span className="text-xs font-semibold text-dark">Scene {beat.beatIndex + 1}</span>
         <span className="rounded-full bg-[var(--color-tea-green)]/35 px-2 py-0.5 text-[10px] font-semibold capitalize text-[var(--color-ash-brown)]">
@@ -60,9 +63,41 @@ export function VirtualizedSceneBoard({
   editable: boolean;
   onChangeBeat: (index: number, next: SceneBeat) => void;
 }): React.JSX.Element {
+  const parentRef = useRef<HTMLDivElement>(null);
   const chapters = useMemo(() => groupBeatsByChapter(beats), [beats]);
+  const grouped = chapters.length > 1;
   const [collapsed, setCollapsed] = useState<Record<number, boolean>>({});
-  const [pageByChapter, setPageByChapter] = useState<Record<number, number>>({});
+
+  const rows = useMemo<BeatBoardRow[]>(() => {
+    if (!grouped) return beats.map((beat) => ({ kind: 'beat', beat }));
+    const next: BeatBoardRow[] = [];
+    for (const chapter of chapters) {
+      next.push({
+        kind: 'header',
+        chapterIndex: chapter.chapterIndex,
+        title: chapter.title,
+        beatCount: chapter.beats.length,
+      });
+      if (collapsed[chapter.chapterIndex]) continue;
+      for (const beat of chapter.beats) next.push({ kind: 'beat', beat });
+    }
+    return next;
+  }, [beats, chapters, collapsed, grouped]);
+
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: (index) => (rows[index]?.kind === 'header' ? 64 : 168),
+    overscan: 8,
+    gap: 12,
+    paddingStart: 12,
+    paddingEnd: 12,
+    getItemKey: (index) => {
+      const row = rows[index];
+      if (!row) return index;
+      return row.kind === 'header' ? `beat-chapter-${row.chapterIndex}` : `beat-${row.beat.beatIndex}`;
+    },
+  });
 
   if (beats.length === 0) {
     return (
@@ -73,65 +108,46 @@ export function VirtualizedSceneBoard({
   }
 
   return (
-    <div className="space-y-4">
-      {chapters.map((chapter) => {
-        const page = pageByChapter[chapter.chapterIndex] ?? 0;
-        const isCollapsed = collapsed[chapter.chapterIndex] ?? false;
-        const start = page * PAGE_SIZE;
-        const visible = chapter.beats.slice(start, start + PAGE_SIZE);
-        const totalPages = Math.max(1, Math.ceil(chapter.beats.length / PAGE_SIZE));
-
-        return (
-          <section key={chapter.chapterIndex} className="rounded-xl border border-border bg-white">
-            <button
-              type="button"
-              onClick={() => setCollapsed((current) => ({ ...current, [chapter.chapterIndex]: !isCollapsed }))}
-              className="studio-touch-target flex w-full items-center justify-between gap-3 border-b border-border px-4 py-3 text-left"
+    <div
+      ref={parentRef}
+      className="max-h-[min(60vh,40rem)] overflow-auto rounded-xl border border-border bg-white"
+    >
+      <div className="relative w-full" style={{ height: `${virtualizer.getTotalSize()}px` }}>
+        {virtualizer.getVirtualItems().map((virtualRow) => {
+          const row = rows[virtualRow.index];
+          if (!row) return null;
+          return (
+            <div
+              key={virtualRow.key}
+              data-index={virtualRow.index}
+              ref={virtualizer.measureElement}
+              className="absolute left-0 top-0 w-full px-3"
+              style={{ transform: `translateY(${virtualRow.start}px)` }}
             >
-              <div>
-                <p className="text-sm font-semibold text-dark">{chapter.title}</p>
-                <p className="text-xs text-muted">{chapter.beats.length} beats · Chapter {chapter.chapterIndex + 1}</p>
-              </div>
-              <span className="text-xs font-semibold text-[var(--color-ash-brown)]">{isCollapsed ? 'Expand' : 'Collapse'}</span>
-            </button>
-
-            {!isCollapsed ? (
-              <div className="p-4">
-                {/* Tablet+: responsive grid */}
-                <div className="studio-scene-board-grid">
-                  {visible.map((beat) => (
-                    <BeatCard key={beat.beatIndex} beat={beat} editable={editable} onChangeBeat={onChangeBeat} />
-                  ))}
-                </div>
-
-                {totalPages > 1 ? (
-                  <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs">
-                    <button
-                      type="button"
-                      disabled={page <= 0}
-                      onClick={() => setPageByChapter((current) => ({ ...current, [chapter.chapterIndex]: Math.max(0, page - 1) }))}
-                      className="studio-touch-target-inline rounded-lg border border-border px-3 py-1.5 font-semibold disabled:opacity-40"
-                    >
-                      Previous
-                    </button>
-                    <span className="text-muted">
-                      Page {page + 1} of {totalPages}
-                    </span>
-                    <button
-                      type="button"
-                      disabled={page >= totalPages - 1}
-                      onClick={() => setPageByChapter((current) => ({ ...current, [chapter.chapterIndex]: Math.min(totalPages - 1, page + 1) }))}
-                      className="studio-touch-target-inline rounded-lg border border-border px-3 py-1.5 font-semibold disabled:opacity-40"
-                    >
-                      Next
-                    </button>
+              {row.kind === 'header' ? (
+                <button
+                  type="button"
+                  onClick={() => setCollapsed((current) => ({
+                    ...current,
+                    [row.chapterIndex]: !collapsed[row.chapterIndex],
+                  }))}
+                  className="studio-touch-target flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-[var(--color-tea-green)]/15 px-4 py-3 text-left"
+                >
+                  <div>
+                    <p className="text-sm font-semibold text-dark">{row.title}</p>
+                    <p className="text-xs text-muted">{row.beatCount} beats · Chapter {row.chapterIndex + 1}</p>
                   </div>
-                ) : null}
-              </div>
-            ) : null}
-          </section>
-        );
-      })}
+                  <span className="text-xs font-semibold text-[var(--color-ash-brown)]">
+                    {collapsed[row.chapterIndex] ? 'Expand' : 'Collapse'}
+                  </span>
+                </button>
+              ) : (
+                <BeatCard beat={row.beat} editable={editable} onChangeBeat={onChangeBeat} />
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

@@ -1,5 +1,5 @@
 ﻿import type { ContentEpisodeScene } from '@/api/content';
-import type { EpisodeSceneCard } from './storyboard';
+import type { EpisodeSceneCard, ThemeCharacterReference } from './storyboard';
 import { studioStreamMediaUrl } from './studioMediaUrl';
 import { aggregateSceneTtsStatus, type EpisodeSceneTtsLine } from './sceneTts';
 
@@ -22,6 +22,49 @@ export function shouldApplySceneDocToCard(
   }
 
   return String(sceneDoc.episodeId) === String(linkedEpisodeId) && sceneDoc.sceneNumber === scene.sceneNumber;
+}
+
+function selectedCharacterRefIdsFromScene(scene: ContentEpisodeScene): string[] {
+  const fromContext = scene.generationContext?.selectedCharacterRefIds;
+  if (Array.isArray(fromContext)) {
+    return fromContext.filter((id): id is string => typeof id === 'string' && Boolean(id));
+  }
+  return (scene.charactersPresent ?? []).map((id) => String(id));
+}
+
+export function characterRefIdsFromScenes(scenes: ContentEpisodeScene[]): string[] {
+  return [...new Set(scenes.flatMap((scene) => selectedCharacterRefIdsFromScene(scene)))];
+}
+
+export function restoreSelectedCharacterRefIds(
+  scenes: ContentEpisodeScene[],
+  themeRefs: ThemeCharacterReference[],
+): string[] {
+  const stored = characterRefIdsFromScenes(scenes);
+  if (themeRefs.length === 0) return stored;
+
+  const fromStored = stored.filter((id) =>
+    themeRefs.some((reference) => reference.id === id || reference.characterId === id),
+  );
+  const handles = new Set(
+    scenes.flatMap((scene) => (scene.characterHandles ?? []).map((handle) => handle.replace(/^@/, '').toLowerCase())),
+  );
+  const fromHandles = themeRefs
+    .filter((reference) => handles.has(reference.handle.replace(/^@/, '').toLowerCase()))
+    .map((reference) => reference.id);
+
+  return [...new Set([...fromStored, ...fromHandles])];
+}
+
+export function sceneCatalogStatusLabel(status?: ContentEpisodeScene['status'] | EpisodeSceneCard['catalogStatus']): string {
+  if (!status || status === 'unrendered') return 'Unrendered';
+  if (status === 'pending_approval') return 'Pending approval';
+  if (status === 'approved') return 'Approved';
+  if (status === 'rejected') return 'Rejected';
+  if (status === 'generating') return 'Generating';
+  if (status === 'queued') return 'Queued';
+  if (status === 'ready') return 'Ready';
+  return 'Failed';
 }
 
 function ttsLinesFromDoc(sceneDoc: ContentEpisodeScene): EpisodeSceneTtsLine[] | undefined {
@@ -52,6 +95,16 @@ function ttsLinesFromDoc(sceneDoc: ContentEpisodeScene): EpisodeSceneTtsLine[] |
   }];
 }
 
+function sceneVideoStatusFromDoc(
+  status: ContentEpisodeScene["status"],
+): EpisodeSceneCard["sceneVideoStatus"] {
+  if (status === "unrendered") return "idle";
+  if (status === "pending_approval") return "pending_approval";
+  if (status === "queued" || status === "generating") return "generating";
+  if (status === "ready" || status === "approved") return "ready";
+  return "failed";
+}
+
 export function mergeSceneMediaFromDoc(
   scene: EpisodeSceneCard,
   sceneDoc: ContentEpisodeScene,
@@ -62,10 +115,14 @@ export function mergeSceneMediaFromDoc(
 
   return {
     ...scene,
-    sceneVideoStatus: sceneDoc.status === 'queued' ? 'generating' : sceneDoc.status,
+    sceneVideoStatus: sceneVideoStatusFromDoc(sceneDoc.status),
     ...(videoUrl ? { sceneVideoUrl: videoUrl } : {}),
     sceneVideoTakeId: sceneDoc.episodeId,
     episodeSceneDocId: sceneDoc._id,
+    catalogStatus: sceneDoc.status,
+    approved: sceneDoc.status === 'approved',
+    generationStartedAt: sceneDoc.generationStartedAt,
+    updatedAt: sceneDoc.updatedAt,
     ...(ttsLines
       ? {
           ttsLines,
@@ -75,6 +132,7 @@ export function mergeSceneMediaFromDoc(
         }
       : {}),
     ...(sceneDoc.voiceProfile ? { voiceProfile: sceneDoc.voiceProfile } : {}),
+    ...(sceneDoc.audioSegmentUrl ? { audioSegmentUrl: sceneDoc.audioSegmentUrl } : {}),
   };
 }
 
@@ -85,21 +143,27 @@ export function episodeSceneCardFromDoc(scene: ContentEpisodeScene): EpisodeScen
   return {
     id: scene._id,
     sceneNumber: scene.sceneNumber,
-    startSec: scene.startSec,
-    endSec: scene.endSec,
-    voiceOver: scene.voiceOver ?? '',
-    visualPrompt: scene.visualPrompt ?? '',
+    startSec: scene.startSeconds ?? scene.startSec,
+    endSec: scene.endSeconds ?? scene.endSec,
+    voiceOver: scene.voiceoverText ?? scene.voiceOver ?? '',
+    visualPrompt: scene.beatDescription ?? scene.visualPrompt ?? '',
     characterHandles: scene.characterHandles ?? [],
-    selectedCharacterRefIds: [],
-    approved: scene.status === 'ready',
+    selectedCharacterRefIds: selectedCharacterRefIdsFromScene(scene),
+    catalogStatus: scene.status,
+    approved: scene.status === 'approved',
     ttsLines,
     ttsStatus: ttsLines ? aggregateSceneTtsStatus(ttsLines) : 'idle',
     ttsAudioUrl: ttsLines?.find((line) => line.audioUrl)?.audioUrl,
     ttsLabel: ttsLines?.find((line) => line.label)?.label,
+    audioSegmentUrl: scene.audioSegmentUrl,
     voiceProfile: scene.voiceProfile,
-    sceneVideoStatus: scene.status === 'queued' ? 'generating' : scene.status,
+    sceneVideoStatus: sceneVideoStatusFromDoc(scene.status),
     sceneVideoUrl: videoUrl,
     sceneVideoTakeId: scene.episodeId,
     episodeSceneDocId: scene._id,
+    chapterIndex: scene.chapterIndex ?? 0,
+    chapterTitle: scene.chapterLabel || (typeof scene.chapterIndex === 'number' ? `Chapter ${scene.chapterIndex + 1}` : undefined),
+    generationStartedAt: scene.generationStartedAt,
+    updatedAt: scene.updatedAt,
   };
 }
