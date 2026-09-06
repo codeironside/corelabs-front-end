@@ -297,16 +297,6 @@ export function ModuleDashboard({ module, themes }: ModuleDashboardProps) {
     ).slice(0, 8),
     [coverVideoMentionQuery, themeCharacterMentions],
   );
-  const imageModelOptions: SelectOption<string>[] = (aiModels?.image ?? []).map((model) => ({
-    value: model.value,
-    label: `${model.providerLabel} - ${model.label}`,
-  }));
-  const videoModelOptions: SelectOption<string>[] = (aiModels?.video ?? [])
-    .filter((model) => model.provider !== 'xai')
-    .map((model) => ({
-      value: model.value,
-      label: `${model.providerLabel} - ${model.label}`,
-    }));
   const canGenerateCoverImage = Boolean(coverPrompt.trim());
   const canGenerateCoverVideo = Boolean(coverVideoPrompt.trim() && coverVideoModel);
   const latestRenderedModuleVideo = module.masterVideoS3Url ?? module.masterVideoCloudinaryUrl ?? module.videoUrl ?? '';

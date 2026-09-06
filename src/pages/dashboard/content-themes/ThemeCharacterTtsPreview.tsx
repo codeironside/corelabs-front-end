@@ -1,6 +1,5 @@
 import { Loader2, Volume2 } from 'lucide-react';
 import { Select } from '@/components/Select';
-import type { AvailableAiModels } from '@/api/content';
 import { TtsVoiceSelect } from '../content-episodes/TtsVoiceSelect';
 import {
   formatPitchPercent,
@@ -28,18 +27,14 @@ export type ThemeCharacterTtsFields = {
 export function ThemeCharacterTtsPreview({
   character,
   characterIndex,
-  audioModels,
   audioModel,
-  onAudioModelChange,
   onUpdateCharacter,
   onPreview,
   previewPending,
 }: {
   character: ThemeCharacterTtsFields;
   characterIndex: number;
-  audioModels: AvailableAiModels['audio'];
   audioModel: string;
-  onAudioModelChange: (value: string) => void;
   onUpdateCharacter: (
     id: string,
     key: 'ttsVoiceProfile' | 'ttsTonePreset' | 'ttsToneDirection' | 'ttsPacePreset' | 'ttsPitchPercent' | 'ttsTestPhrase',

@@ -799,9 +799,7 @@ export function ContentThemes({ themes }: { themes: ContentTheme[] }) {
                       <ThemeCharacterTtsPreview
                         character={character}
                         characterIndex={index}
-                        audioModels={aiModels.audio}
                         audioModel={characterTtsAudioModel}
-                        onAudioModelChange={setCharacterTtsAudioModel}
                         onUpdateCharacter={updateCharacter}
                         onPreview={(characterId) => previewCharacterTtsMut.mutate({ characterId })}
                         previewPending={previewCharacterTtsMut.isPending && previewCharacterTtsMut.variables?.characterId === character.id}

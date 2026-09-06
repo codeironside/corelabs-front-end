@@ -122,7 +122,6 @@ import {
   refineEpisodeImagePrompt as refineEpisodeImagePromptRequest,
   saveContentStudioDraft,
   deleteContentEpisode,
-  type AiModelOption,
   type AvailableAiModels,
   type ContentEpisode,
   type ContentEpisodeScene,
@@ -140,7 +139,6 @@ type IntroSource = 'upload' | 'ai';
 type ReviewState = 'idle' | 'generating' | 'ready' | 'editing' | 'queued';
 type ScriptWorkflow = EpisodeScriptWorkflow;
 type OverlayAlign = 'left' | 'center' | 'right';
-type ModelUse = 'text' | 'image' | 'video' | 'audio';
 type PublishPlatform = 'youtube' | 'tiktok' | 'instagram';
 
 function apiErrorMessage(error: unknown, fallback: string) {
@@ -228,7 +226,6 @@ const EMPTY_AI_MODELS: AvailableAiModels = {
 
 const EPISODE_MODULE_SESSION_KEY = 'content-studio-episode-module-id';
 
-const PROVIDER_ORDER: AiModelOption['provider'][] = ['openai', 'anthropic', 'google', 'xai', 'kling', 'elevenlabs', 'studio'];
 type EpisodeCanvasDraft = {
   moduleId: string;
   episodeWorkspaceKey: string;
@@ -316,49 +313,6 @@ function allModels(models: AvailableAiModels) {
 
 function findModel(value: string, models: AvailableAiModels) {
   return allModels(models).find((option) => option.value === value);
-}
-
-function ModelSelect({
-  label,
-  value,
-  use,
-  options,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  use: ModelUse;
-  options: AiModelOption[];
-  onChange: (value: string) => void;
-}) {
-  const selected = options.find((option) => option.value === value);
-  const hasOptions = options.length > 0;
-
-  return (
-    <div>
-      <label className="mb-1 block text-xs font-medium text-muted">{label}</label>
-      <select className="input-field text-sm" value={value} onChange={(e) => onChange(e.target.value)} disabled={!hasOptions}>
-        {!hasOptions && <option value="">No models available</option>}
-        {PROVIDER_ORDER.map((provider) => {
-          const providerOptions = options.filter((option) => option.provider === provider);
-          if (providerOptions.length === 0) return null;
-          const providerLabel = providerOptions[0].providerLabel;
-          return (
-            <optgroup key={provider} label={providerLabel}>
-              {providerOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </optgroup>
-          );
-        })}
-      </select>
-      <p className="mt-1 text-[11px] leading-relaxed text-muted">
-        {selected ? `${selected.providerLabel} powers this ${use} stage.` : `No ${use} model is currently available.`}
-      </p>
-    </div>
-  );
 }
 
 function getPlatformLabels(module?: ContentModule) {
@@ -2456,7 +2410,7 @@ export function ContentEpisodes() {
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
-                  onClick={startFreshEpisodeWorkspace}
+                  onClick={() => startFreshEpisodeWorkspace()}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-semibold text-dark hover:border-[var(--color-muted-olive)]"
                 >
                   <Plus size={13} /> New episode for this module
