@@ -31,6 +31,10 @@ export function getFirebaseAuth(): Auth {
     storageBucket: config.firebase.storageBucket || undefined,
     messagingSenderId: config.firebase.messagingSenderId || undefined,
   });
+  // Google popup must open this project's handler, not ajeoba-web-storage.
+  if (app.options.authDomain !== 'ajeoba-54fca.firebaseapp.com') {
+    throw new Error('Firebase Auth is not using the ajeoba-54fca auth domain.');
+  }
   auth = getAuth(app);
   return auth;
 }
