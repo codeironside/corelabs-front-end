@@ -41,8 +41,11 @@ The API subdomain (`api.studios.corelabs.it.com`) is configured in **corelabs-ba
 | `VITE_STUDIO_API_URL` | `https://api.studios.corelabs.it.com/api/v1` |
 | `STUDIO_FRONTEND_DOMAIN` | `studios.corelabs.it.com` (optional — default) |
 | `STUDIO_SSL_EMAIL` | Let's Encrypt contact email |
+| `VITE_FIREBASE_PROJECT_ID` | `ajeoba-54fca` |
+| `VITE_FIREBASE_AUTH_DOMAIN` | `ajeoba-54fca.firebaseapp.com` |
+| `VITE_FIREBASE_STORAGE_BUCKET` | `ajeoba-54fca.firebasestorage.app` |
 
-Secrets: `EC2_HOST`, `EC2_USER`, `EC2_SSH_KEY`, Firebase `VITE_*` secrets — see workflow file.
+Secrets: `EC2_HOST`, `EC2_USER`, `EC2_SSH_KEY`, plus Firebase web config from project **ajeoba-54fca** (not `ajeoba-web-storage`): `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_MESSAGING_SENDER_ID`, `VITE_FIREBASE_APP_ID`. Copy those from [Firebase project settings](https://console.firebase.google.com/project/ajeoba-54fca/settings/general). After changing them, redeploy the frontend so production stops using the old web-storage API key.
 
 ---
 
