@@ -3,7 +3,11 @@ import axios from 'axios';
 export function getAuthErrorMessage(error: unknown, fallback = 'google sign-in failed'): string {
   if (axios.isAxiosError(error)) {
     if (!error.response) {
-      return 'studio api is unreachable — start corelabs-backend (port 4005)';
+      const target = typeof error.config?.baseURL === 'string' ? error.config.baseURL : '';
+      if (target.includes('localhost') || target.includes('127.0.0.1')) {
+        return 'studio api is unreachable — start corelabs-backend (port 4005)';
+      }
+      return 'studio api is unreachable — the app could not reach https://api.studios.corelabs.it.com';
     }
 
     const payload = error.response.data;

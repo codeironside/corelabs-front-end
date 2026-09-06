@@ -27,6 +27,7 @@ ssl_enabled() {
 spa_locations() {
   cat <<EOF
     location / {
+        add_header Cross-Origin-Opener-Policy "same-origin-allow-popups" always;
         try_files \$uri \$uri/ /index.html;
     }
 EOF
