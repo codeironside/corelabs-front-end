@@ -1,10 +1,11 @@
-﻿import { CheckCircle2, Music2, Palette, RefreshCcw, SlidersHorizontal, Volume2, Wand2 } from 'lucide-react';
+﻿import { CheckCircle2, Music2, Palette, RefreshCcw, SlidersHorizontal, Square, Volume2, Wand2 } from 'lucide-react';
 import type { AiModelOption } from '@/api/content';
 import type { EpisodeSceneCard } from '../storyboard';
 import { sceneHasReadyTts, sceneIsGeneratingTts, ensureSceneTtsLines } from '../sceneTts';
 import { clamp } from './editorUtils';
 import { DEFAULT_COLOR_GRADE } from './colorGrade';
 import type { ClipInspectorState, ColorGradeState, TimelineRenderOptions } from './types';
+import { VideoProviderSwitch } from '../VideoProviderSwitch';
 
 export function InspectorSlider({
   label,
@@ -32,7 +33,7 @@ export function InspectorSlider({
           {suffix}
         </span>
       </span>
-      <input type="range" min={min} max={max} step={step} value={value} onChange={(event) => onChange(Number(event.target.value))} className="mt-2 w-full accent-[var(--color-muted-olive)]" />
+      <input type="range" min={min} max={max} step={step} value={value} onChange={(event) => onChange(Number(event.target.value))} className="studio-range-touch mt-2 w-full accent-[var(--color-muted-olive)]" />
     </label>
   );
 }
@@ -59,6 +60,7 @@ export function ClipInspectorPanel({
   onUpdateScene: _onUpdateScene,
   onApproveScene,
   onRetryScene,
+  onCancelScene,
   onRenderMaster,
 }: {
   selectedScene?: EpisodeSceneCard;
@@ -82,10 +84,11 @@ export function ClipInspectorPanel({
   onUpdateScene: (sceneId: string, patch: Partial<EpisodeSceneCard>) => void;
   onApproveScene?: (scene: EpisodeSceneCard) => void;
   onRetryScene?: (scene: EpisodeSceneCard) => void;
+  onCancelScene?: (scene: EpisodeSceneCard) => void;
   onRenderMaster: (options?: TimelineRenderOptions) => void;
 }) {
   return (
-    <aside className="p-4">
+    <aside className="studio-video-editor-inspector min-w-0 p-4">
       <div className="rounded-xl border border-border bg-white p-4">
         <div className="flex items-center gap-2 text-sm font-semibold text-dark">
           <SlidersHorizontal size={16} className="text-[var(--color-ash-brown)]" />
@@ -97,9 +100,7 @@ export function ClipInspectorPanel({
               <p className="text-xs font-semibold text-dark">Scene {selectedScene.sceneNumber}</p>
               <p className="mt-1 text-[11px] leading-relaxed text-muted">{selectedScene.visualPrompt || 'No visual prompt set.'}</p>
             </div>
-            <select value={videoModel} onChange={(event) => onVideoModelChange(event.target.value)} className="input-field text-xs">
-              {videoModels.map((model) => <option key={model.value} value={model.value}>{model.providerLabel} {model.label}</option>)}
-            </select>
+            <VideoProviderSwitch compact models={videoModels} value={videoModel} onChange={onVideoModelChange} />
             <InspectorSlider label="Scale" value={inspector.scale} min={50} max={180} suffix="%" onChange={(scale) => onInspectorChange({ scale })} />
             <InspectorSlider label="Position X" value={inspector.x} min={0} max={100} suffix="%" onChange={(x) => onInspectorChange({ x })} />
             <InspectorSlider label="Position Y" value={inspector.y} min={0} max={100} suffix="%" onChange={(y) => onInspectorChange({ y })} />
@@ -149,9 +150,15 @@ export function ClipInspectorPanel({
               <button type="button" onClick={() => onImproveScene(selectedScene)} className="inline-flex items-center justify-center gap-2 rounded-xl border border-[var(--color-muted-olive)] px-3 py-2 text-xs font-semibold text-[var(--color-ash-brown)]">
                 <Wand2 size={14} /> Improve Script Part
               </button>
-              <button type="button" onClick={() => onGenerateSceneVideo(selectedScene)} className="inline-flex items-center justify-center gap-2 rounded-xl bg-[var(--color-muted-olive)] px-3 py-2 text-xs font-semibold text-[var(--color-vanilla-cream)]">
-                <RefreshCcw size={14} /> Re-render Clip In Place
-              </button>
+              {(selectedScene.catalogStatus === 'generating' || selectedScene.catalogStatus === 'queued') && onCancelScene ? (
+                <button type="button" onClick={() => onCancelScene(selectedScene)} className="inline-flex items-center justify-center gap-2 rounded-xl border border-red-200 px-3 py-2 text-xs font-semibold text-red-700">
+                  <Square size={14} /> Stop generation
+                </button>
+              ) : (
+                <button type="button" onClick={() => onGenerateSceneVideo(selectedScene)} className="inline-flex items-center justify-center gap-2 rounded-xl bg-[var(--color-muted-olive)] px-3 py-2 text-xs font-semibold text-[var(--color-vanilla-cream)]">
+                  <RefreshCcw size={14} /> Re-render Clip In Place
+                </button>
+              )}
               <button type="button" onClick={() => onGenerateSceneTts(selectedScene.id)} disabled={sceneIsGeneratingTts(selectedScene) || (!sceneHasReadyTts(selectedScene) && (!audioModel || !ensureSceneTtsLines(selectedScene).some((line) => line.text.trim())))} className="inline-flex items-center justify-center gap-2 rounded-xl border border-border px-3 py-2 text-xs font-semibold text-dark disabled:opacity-45">
                 <Volume2 size={14} /> {sceneHasReadyTts(selectedScene) ? 'Add dialogue to timeline' : 'Generate first line'}
               </button>
@@ -175,7 +182,7 @@ export function ClipInspectorPanel({
         )}
       </div>
 
-      <div className="mt-4 rounded-xl border border-[var(--color-tea-green)] bg-white p-4">
+      <div className="rounded-xl border border-[var(--color-tea-green)] bg-white p-4">
         <div className="flex items-center gap-2 text-sm font-semibold text-dark">
           <Music2 size={16} className="text-[var(--color-ash-brown)]" />
           Export Pipeline

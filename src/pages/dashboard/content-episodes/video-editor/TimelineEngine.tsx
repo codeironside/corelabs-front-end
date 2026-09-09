@@ -201,30 +201,32 @@ export function TimelineEngine({
 
   return (
     <div className="border-t border-border p-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap gap-1.5">
+      <div className="studio-horizontal-scroll">
+        <div className="flex min-w-max items-center justify-between gap-3">
+        <div className="flex gap-1.5">
           {timelineTools.map((item) => (
             <button
               key={item.id}
               type="button"
               onClick={() => onToolChange(item.id)}
-              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold ${activeTool === item.id ? 'bg-[var(--color-muted-olive)] text-[var(--color-vanilla-cream)]' : 'border border-border text-dark hover:border-[var(--color-muted-olive)]'}`}
+              className={`studio-touch-target-inline inline-flex items-center gap-1.5 rounded-lg px-3 text-xs font-semibold ${activeTool === item.id ? 'bg-[var(--color-muted-olive)] text-[var(--color-vanilla-cream)]' : 'border border-border text-dark hover:border-[var(--color-muted-olive)]'}`}
             >
               {item.id === 'blade' ? <Scissors size={13} /> : item.id === 'speed' ? <Clock3 size={13} /> : item.id === 'transition' ? <Sparkles size={13} /> : <SlidersHorizontal size={13} />}
               {item.label}
             </button>
           ))}
-          <button type="button" onClick={() => onInspectorChange({ speed: Math.max(0.5, Number((inspector.speed - 0.1).toFixed(1))) })} className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-semibold text-dark">
+          <button type="button" onClick={() => onInspectorChange({ speed: Math.max(0.5, Number((inspector.speed - 0.1).toFixed(1))) })} className="studio-touch-target-inline inline-flex items-center gap-1.5 rounded-lg border border-border px-3 text-xs font-semibold text-dark">
             <FastForward size={13} /> - Speed
           </button>
-          <button type="button" onClick={() => onInspectorChange({ speed: Math.min(2, Number((inspector.speed + 0.1).toFixed(1))) })} className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-semibold text-dark">
+          <button type="button" onClick={() => onInspectorChange({ speed: Math.min(2, Number((inspector.speed + 0.1).toFixed(1))) })} className="studio-touch-target-inline inline-flex items-center gap-1.5 rounded-lg border border-border px-3 text-xs font-semibold text-dark">
             <FastForward size={13} /> + Speed
           </button>
         </div>
         <div className="flex items-center gap-2">
           <span className="text-[11px] font-semibold text-muted">Zoom</span>
-          <input type="range" min={7} max={22} value={zoom} onChange={(event) => setZoom(Number(event.target.value))} className="w-28 accent-[var(--color-muted-olive)]" />
+          <input type="range" min={7} max={22} value={zoom} onChange={(event) => setZoom(Number(event.target.value))} className="studio-range-touch w-28 accent-[var(--color-muted-olive)]" />
           <span className="rounded-full bg-[var(--color-tea-green)]/35 px-2 py-1 text-[10px] font-semibold text-[var(--color-ash-brown)]">{timecode(playheadSec)}</span>
+        </div>
         </div>
       </div>
 
@@ -422,7 +424,7 @@ export function TimelineEngine({
                   <LaneSoloRail laneCount={ttsLaneLayout.laneCount} track="tts" solo={audioSolo} onSoloChange={onAudioSoloChange} />
                   {ttsLayers.length === 0 && !scenes.some((scene) => sceneHasReadyTts(scene)) ? (
                     <div className="absolute inset-0 flex items-center rounded-md border border-dashed border-[var(--color-tea-green)] px-3 text-[10px] text-muted">
-                      {soundEnabled ? 'Generate TTS per scene in Section 4 to see narration blocks here.' : 'Silent episode ΓÇö no TTS blocks.'}
+                      {soundEnabled ? 'Scene video audio is on — narration TTS is skipped.' : 'Generate TTS in Section 2, then commit scenes to chain narration here.'}
                     </div>
                   ) : (
                     <>

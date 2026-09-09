@@ -165,27 +165,78 @@
   visibility: hidden;
 }
 
-.studio-video-editor-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 0;
+.studio-video-editor {
+  display: flex;
+  flex-direction: column;
+  overflow: visible;
+  background: #0c0c0c;
+  isolation: isolate;
+  container-type: inline-size;
+  container-name: studio-video-editor;
 }
 
-@media (min-width: 1280px) {
-  .studio-video-editor-grid {
-    grid-template-columns: minmax(0, 18rem) minmax(0, 1fr) minmax(0, 20rem);
-  }
+.studio-video-editor-tabs {
+  display: none;
+}
+
+.studio-video-editor-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: #0c0c0c;
+}
+
+.studio-video-editor-col {
+  min-width: 0;
+  width: 100%;
+  overflow: visible;
+  background: #0c0c0c;
+  isolation: isolate;
+}
+
+.studio-video-editor-col--scenes {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.studio-video-editor-col--editor {
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
 }
 
 .studio-video-editor-main {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
   gap: 0;
 }
 
-@media (min-width: 1024px) {
-  .studio-video-editor-main {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 18rem);
+.studio-video-editor-inspector {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.studio-video-editor-scenes {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@container studio-video-editor (min-width: 640px) {
+  .studio-video-editor-scenes {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .studio-video-editor-inspector {
+    grid-template-columns: minmax(0, 1fr) minmax(16rem, 20rem);
+    align-items: start;
+  }
+}
+
+@container studio-video-editor (min-width: 960px) {
+  .studio-video-editor-scenes {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 

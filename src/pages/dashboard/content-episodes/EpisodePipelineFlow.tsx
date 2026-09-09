@@ -66,6 +66,7 @@ interface EpisodePipelineFlowProps {
   script: string;
   videoModel: string;
   audioReady: boolean;
+  nativeVideoAudio?: boolean;
   runtimeTargetSeconds: number;
   selectedCharacters: EpisodeCharacterSelectorChoice[];
   onScenesCommitted: (episodeId: string) => void;
@@ -79,6 +80,7 @@ export function EpisodePipelineFlow({
   script,
   videoModel,
   audioReady,
+  nativeVideoAudio = false,
   runtimeTargetSeconds,
   selectedCharacters,
   onScenesCommitted,
@@ -108,7 +110,9 @@ export function EpisodePipelineFlow({
   const progressLabel = useMemo(() => {
     if (!episodeId) return 'Save the episode in Section 1 first so scene beats can attach to it.';
     if (!audioReady) {
-      return 'Generate or upload the full episode audio track in the Voice-Over panel before breaking the script into timed beats.';
+      return nativeVideoAudio
+        ? 'Save Default scene video audio, then break the script into timed beats. TTS is skipped while native clip audio is on.'
+        : 'Turn on Default scene video audio, or generate/upload a voice-over and check “Episode audio finalized for beat breakdown” before breaking the script into timed beats.';
     }
     if (!script.trim()) return 'Add a Base Textual Prompt in Episode Initialization before breaking the script into scene beats.';
     if (pipeline?.status === 'awaiting_approval') {
@@ -132,7 +136,7 @@ export function EpisodePipelineFlow({
     if (!displayBeats.length) return 'Break the script into timed beats, review the draft once, then commit the scene queue.';
     if (!queueCommitted) return `Review ${displayBeats.length} generated beats before committing the scene queue.`;
     return pipeline?.progressLabel ?? 'Scene queue committed. Refine clips in Committed Scene Cards below.';
-  }, [activeSceneNumber, audioReady, displayBeats, episodeId, pipeline, queueCommitted, script]);
+  }, [activeSceneNumber, audioReady, displayBeats, episodeId, nativeVideoAudio, pipeline, queueCommitted, script]);
 
   const breakdownMutation = useMutation({
     mutationFn: async () => {
@@ -184,7 +188,11 @@ export function EpisodePipelineFlow({
       setFailedChapters([]);
       setReviewCommitted(true);
       onScenesCommitted(result.episode._id);
-      toast.success(`Scene queue committed (${result.sceneCount} scenes).`);
+      toast.success(
+        result.episode.audio?.source === 'upload'
+          ? `Scene queue committed (${result.sceneCount} scenes). Uploaded narration was sliced onto each scene.`
+          : `Scene queue committed (${result.sceneCount} scenes). Generated narration is chained per scene from the previous clip.`,
+      );
       void queryClient.invalidateQueries({ queryKey: ['content', 'episodes'] });
       void queryClient.invalidateQueries({ queryKey: ['content', 'episodes', moduleId] });
       void queryClient.invalidateQueries({ queryKey: ['content', 'episodes', result.episode._id, 'scenes'] });
@@ -212,6 +220,8 @@ export function EpisodePipelineFlow({
     onError: (error) => toast.error(apiErrorMessage(error, 'Could not record scene approval.')),
   });
 
+  const breakdownBusy = breakdownMutation.isPending || retryChapterMutation.isPending;
+
   function updateBeat(index: number, next: SceneBeat) {
     setDraftBeats((current) =>
       current.map((beat) => (beat.order - 1 === index ? sceneBeatToDraft(next, beat) : beat)),
@@ -221,10 +231,20 @@ export function EpisodePipelineFlow({
   const gateMessage = !episodeId
     ? 'Save the episode in Section 1 first. Scene beats attach to a persisted episode, not an unsaved draft.'
     : !audioReady
-      ? 'Generate or upload the full episode audio track in the Voice-Over panel before breaking the script into timed beats. Check “Episode audio finalized for beat breakdown” in the Voice-Over Control Panel.'
+      ? (nativeVideoAudio
+        ? 'Save the episode after turning on Default scene video audio. TTS is skipped while native clip audio is on.'
+        : 'Turn on Default scene video audio, or generate/upload a voice-over and check “Episode audio finalized for beat breakdown” before breaking the script into timed beats.')
       : !script.trim()
         ? 'Add a Base Textual Prompt in Episode Initialization before breaking the script into scene beats.'
         : null;
+
+  function handleBreakScript() {
+    if (gateMessage) {
+      toast.error(gateMessage);
+      return;
+    }
+    breakdownMutation.mutate();
+  }
 
   return (
     <div className="space-y-5">
@@ -237,17 +257,34 @@ export function EpisodePipelineFlow({
       </div>
 
       {gateMessage ? (
-        <div className="rounded-xl border border-[var(--color-faded-copper)]/40 bg-white p-4 text-xs leading-relaxed text-muted">
-          {gateMessage}
+        <div className="rounded-xl border border-[var(--color-faded-copper)]/50 bg-[var(--color-faded-copper)]/10 p-4">
+          <p className="text-sm font-semibold text-dark">Scene beats are locked until the checklist below is complete</p>
+          <p className="mt-1 text-xs leading-relaxed text-[var(--color-ash-brown)]">{gateMessage}</p>
+          <ul className="mt-3 space-y-1.5 text-xs text-dark">
+            <li className={episodeId ? 'text-[var(--color-muted-olive)]' : 'font-semibold'}>
+              {episodeId ? 'Done' : 'Needed'}: Save the episode in Section 1
+            </li>
+            <li className={script.trim() ? 'text-[var(--color-muted-olive)]' : 'font-semibold'}>
+              {script.trim() ? 'Done' : 'Needed'}: Add a Base Textual Prompt in Episode Initialization
+            </li>
+            <li className={audioReady ? 'text-[var(--color-muted-olive)]' : 'font-semibold'}>
+              {audioReady ? 'Done' : 'Needed'}: {nativeVideoAudio
+                ? 'Default scene video audio is on — TTS is skipped'
+                : audioReady
+                  ? 'Voice-over finalized for beat breakdown'
+                  : 'Turn on Default scene video audio, or generate/upload TTS and finalize it in Section 2'}
+            </li>
+          </ul>
         </div>
       ) : null}
 
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
-          disabled={!canBreak || breakdownMutation.isPending || retryChapterMutation.isPending}
-          onClick={() => breakdownMutation.mutate()}
-          className="studio-touch-target-inline inline-flex items-center gap-2 rounded-xl bg-[var(--color-muted-olive)] px-4 py-2 text-sm font-semibold text-[var(--color-vanilla-cream)] disabled:opacity-45"
+          disabled={breakdownBusy}
+          title={gateMessage ?? undefined}
+          onClick={handleBreakScript}
+          className={`studio-touch-target-inline inline-flex items-center gap-2 rounded-xl bg-[var(--color-muted-olive)] px-4 py-2 text-sm font-semibold text-[var(--color-vanilla-cream)] disabled:opacity-45 ${canBreak ? '' : 'opacity-60'}`}
         >
           {breakdownMutation.isPending ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
           Break script into scene beats
@@ -255,8 +292,22 @@ export function EpisodePipelineFlow({
 
         <button
           type="button"
-          disabled={!episodeId || !audioReady || !draftBeats.length || failedChapters.length > 0 || commitMutation.isPending}
-          onClick={() => commitMutation.mutate()}
+          disabled={commitMutation.isPending}
+          onClick={() => {
+            if (!episodeId || !audioReady) {
+              toast.error(gateMessage || 'Finish the scene-beats checklist before committing.');
+              return;
+            }
+            if (!draftBeats.length) {
+              toast.error('Break the script into scene beats first, then commit the queue.');
+              return;
+            }
+            if (failedChapters.length > 0) {
+              toast.error('Retry failed chapters before committing the scene queue.');
+              return;
+            }
+            commitMutation.mutate();
+          }}
           className="inline-flex items-center gap-2 rounded-xl border border-[var(--color-muted-olive)] px-4 py-2 text-sm font-semibold text-[var(--color-ash-brown)] disabled:opacity-45"
         >
           {commitMutation.isPending ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />}

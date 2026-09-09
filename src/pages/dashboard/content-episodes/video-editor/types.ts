@@ -174,5 +174,6 @@ export type VideoEditorWorkspaceProps = {
   onApproveScene?: (scene: EpisodeSceneCard) => void;
   onRetryScene?: (scene: EpisodeSceneCard) => void;
   onEditRetryScene?: (scene: EpisodeSceneCard, editedBeat: string) => void;
+  onCancelScene?: (scene: EpisodeSceneCard) => void;
   onVideoModelChange: (model: string) => void;
 };

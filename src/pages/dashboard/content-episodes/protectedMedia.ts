@@ -23,6 +23,14 @@ export function directStudioMediaUrl(originUrl: string | undefined): string | un
   return normalizeOriginUrl(originUrl.trim());
 }
 
+const videoBlobCache = new Map<string, StreamTokenCacheEntry>();
+
+function revokeCachedBlob(entry: StreamTokenCacheEntry | undefined) {
+  if (entry?.streamUrl.startsWith('blob:')) {
+    URL.revokeObjectURL(entry.streamUrl);
+  }
+}
+
 async function issueProtectedStreamUrl(normalized: string): Promise<string> {
   const cached = streamTokenCache.get(normalized);
   if (cached && cached.expiresAt > Date.now() + 30_000) {
@@ -86,6 +94,39 @@ export async function resolveProtectedAudioPlaybackUrl(originUrl: string | undef
   }
 }
 
+export async function resolveProtectedVideoPlaybackUrl(originUrl: string | undefined): Promise<string | undefined> {
+  const direct = directStudioMediaUrl(originUrl);
+  if (!direct) return undefined;
+
+  const cached = videoBlobCache.get(direct);
+  if (cached && cached.expiresAt > Date.now() + 30_000) {
+    return cached.streamUrl;
+  }
+
+  try {
+    const streamUrl = await issueProtectedStreamUrl(direct);
+    const response = await fetch(streamUrl);
+    if (!response.ok) throw new Error('Protected video stream failed');
+
+    const mimeType = response.headers.get('content-type') ?? 'video/mp4';
+    if (!mimeType.toLowerCase().startsWith('video/') && !mimeType.toLowerCase().includes('octet-stream')) {
+      throw new Error(`Protected video stream returned ${mimeType}`);
+    }
+
+    const buffer = await response.arrayBuffer();
+    const blob = new Blob([buffer], { type: mimeType.split(';')[0]?.trim() || 'video/mp4' });
+    const objectUrl = URL.createObjectURL(blob);
+    revokeCachedBlob(cached);
+    videoBlobCache.set(direct, {
+      streamUrl: objectUrl,
+      expiresAt: Date.now() + 4 * 60 * 1000,
+    });
+    return objectUrl;
+  } catch {
+    return undefined;
+  }
+}
+
 export function useProtectedMediaSrc(originUrl: string | undefined): {
   src: string | undefined;
   loading: boolean;
@@ -122,6 +163,50 @@ export function useProtectedMediaSrc(originUrl: string | undefined): {
         setSrc(usable);
         setLoading(false);
         setError(!usable);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [originUrl]);
+
+  return { src, loading, error };
+}
+
+export function useProtectedVideoSrc(originUrl: string | undefined): {
+  src: string | undefined;
+  loading: boolean;
+  error: boolean;
+} {
+  const [src, setSrc] = useState<string | undefined>();
+  const [loading, setLoading] = useState(Boolean(originUrl));
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!originUrl?.trim()) {
+      setSrc(undefined);
+      setLoading(false);
+      setError(false);
+      return;
+    }
+
+    setLoading(true);
+    setError(false);
+
+    void resolveProtectedVideoPlaybackUrl(originUrl)
+      .then((nextSrc) => {
+        if (cancelled) return;
+        setSrc(nextSrc);
+        setLoading(false);
+        setError(!nextSrc);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setSrc(undefined);
+        setLoading(false);
+        setError(true);
       });
 
     return () => {

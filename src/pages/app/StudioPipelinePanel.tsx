@@ -243,6 +243,7 @@ export function StudioPipelinePanel(): React.JSX.Element {
                 <option value="openai:sora-2">OpenAI Sora 2</option>
                 <option value="openai:sora-2-pro">OpenAI Sora 2 Pro</option>
                 <option value="google:veo-3.1">Google Veo 3.1</option>
+                <option value="xai:grok-imagine-video">Grok Imagine Video</option>
               </select>
             </label>
           </div>

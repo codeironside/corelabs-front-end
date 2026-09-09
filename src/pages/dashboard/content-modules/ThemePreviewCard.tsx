@@ -3,6 +3,7 @@ import type { ContentTheme, ReferenceImage } from '@/api/content';
 import { ProtectedStudioImage } from '@/pages/dashboard/content-episodes/ProtectedStudioImage';
 import { parseThemeCharacterMentions, parseThemeCharacterReferences } from '../content-episodes/storyboard';
 import { sanitizeThemeCoreRules } from './moduleUtils';
+import { MISSING_VIDEO_STYLE_MESSAGE, parseThemeVideoStyle, themeNeedsVideoStyle } from '../content-themes/themeVideoStyle';
 
 function referenceImageUrl(image: ReferenceImage): string | undefined {
   return image.cloudinaryUrl || image.s3Url;
@@ -34,6 +35,11 @@ export function ThemePreviewCard({ theme }: { theme?: ContentTheme }) {
           {imageRefs.length + characterRefs.length} refs
         </span>
       </div>
+      {themeNeedsVideoStyle(theme) ? (
+        <p className="mt-3 rounded-lg border border-[var(--color-faded-copper)]/50 bg-[var(--color-faded-copper)]/10 px-3 py-2 text-[11px] leading-relaxed text-[var(--color-ash-brown)]">
+          {MISSING_VIDEO_STYLE_MESSAGE}
+        </p>
+      ) : null}
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         <div className="rounded-lg border border-border p-3">
           <p className="text-[10px] uppercase tracking-wider text-muted">Tone / Genre</p>
@@ -42,6 +48,10 @@ export function ThemePreviewCard({ theme }: { theme?: ContentTheme }) {
         <div className="rounded-lg border border-border p-3">
           <p className="text-[10px] uppercase tracking-wider text-muted">Global Image References</p>
           <p className="mt-1 text-xs font-semibold text-dark">{imageRefs.length} uploaded</p>
+        </div>
+        <div className="rounded-lg border border-border p-3 sm:col-span-2">
+          <p className="text-[10px] uppercase tracking-wider text-muted">Video Style</p>
+          <p className="mt-1 text-xs font-semibold text-dark">{parseThemeVideoStyle(theme) || 'Not set — add a rendering medium on the Theme'}</p>
         </div>
         <div className="rounded-lg border border-border p-3 sm:col-span-2">
           <p className="text-[10px] uppercase tracking-wider text-muted">Character Roster</p>

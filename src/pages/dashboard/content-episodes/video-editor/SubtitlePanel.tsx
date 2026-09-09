@@ -1,4 +1,4 @@
-﻿import { Clock, Palette, Type } from 'lucide-react';
+import { Clock, Palette, Type } from 'lucide-react';
 import type { SubtitleCue, SubtitleStyle } from './types';
 import { timecode } from './editorUtils';
 
@@ -53,7 +53,7 @@ export function SubtitlePanel({
   const selectedCue = cues.find((cue) => cue.id === selectedCueId);
 
   return (
-    <aside className="border-t border-border p-4 lg:border-l lg:border-t-0">
+    <aside className="border-t border-border p-4">
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm font-semibold text-dark">Subtitle Suite</p>
         <button type="button" onClick={onGenerate} className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--color-muted-olive)] px-3 py-2 text-[11px] font-semibold text-[var(--color-vanilla-cream)]">

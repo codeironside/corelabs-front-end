@@ -219,7 +219,11 @@ export function moduleToWizard(module: ContentModule): ModuleWizard {
 }
 
 export function syncRoadmapWithEpisodes(roadmap: RoadmapItem[], episodes: ContentEpisode[]): RoadmapItem[] {
-  const activeEpisodes = episodes.filter((episode) => ['queued', 'generating', 'ready', 'published'].includes(episode.status));
+  const activeEpisodes = episodes.filter((episode) =>
+    !episode.sceneOnly
+    && !episode.sourceEpisodeId
+    && ['queued', 'generating', 'ready', 'published'].includes(episode.status),
+  );
   if (activeEpisodes.length === 0) return roadmap;
 
   const orderedEpisodes = [...activeEpisodes].sort((a, b) => {

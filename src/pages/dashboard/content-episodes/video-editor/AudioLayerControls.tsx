@@ -1,4 +1,4 @@
-﻿import { useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Clock3, ExternalLink, Link2, Mic, Music2, Play, Plus, Search, Trash2, UploadCloud, Volume2, VolumeX } from 'lucide-react';
 import type { EpisodeSceneCard } from '../storyboard';
 import { studioStreamMediaUrl } from '../studioMediaUrl';
@@ -365,13 +365,13 @@ export function AudioLayerControls({
         {reusableAudioAssets.length === 0 ? (
           <p className="mt-2 rounded-lg border border-dashed border-border p-3 text-xs text-muted">Saved workspace/global audio will appear here for reuse.</p>
         ) : (
-          <div className="mt-2 grid max-h-48 gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
+          <div className="mt-2 grid max-h-48 gap-2 overflow-y-auto pr-1 xl:grid-cols-2">
             {reusableAudioAssets.map((asset) => (
               <button
                 key={asset._id}
                 type="button"
                 onClick={() => addReusableAudio(asset)}
-                className="rounded-lg border border-border bg-white p-3 text-left hover:border-[var(--color-muted-olive)]"
+                className="min-w-0 overflow-hidden rounded-lg border border-border bg-white p-3 text-left hover:border-[var(--color-muted-olive)]"
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
@@ -413,12 +413,12 @@ export function AudioLayerControls({
             </button>
           ))}
         </div>
-        <div className="mt-3 grid max-h-64 gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
+        <div className="mt-3 grid max-h-64 gap-2 overflow-y-auto pr-1 xl:grid-cols-2">
           {filteredSfxPresets.length === 0 ? (
-            <p className="rounded-lg border border-dashed border-border p-3 text-xs text-muted sm:col-span-2">No SFX matched that search.</p>
+            <p className="rounded-lg border border-dashed border-border p-3 text-xs text-muted xl:col-span-2">No SFX matched that search.</p>
           ) : (
             filteredSfxPresets.map((preset) => (
-              <div key={preset.id} className="rounded-lg border border-border bg-white p-3 shadow-sm">
+              <div key={preset.id} className="min-w-0 overflow-hidden rounded-lg border border-border bg-white p-3 shadow-sm">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="truncate text-xs font-semibold text-dark">{preset.label}</p>
@@ -461,19 +461,19 @@ export function AudioLayerControls({
           <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted">Online Soundtracks & Real SFX</p>
           <span className="rounded-full bg-white px-2 py-1 text-[10px] font-semibold text-[var(--color-ash-brown)]">license check required</span>
         </div>
-        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        <div className="mt-3 grid gap-2 xl:grid-cols-2">
           {SOUNDTRACK_SOURCES.map((source) => (
             <a
               key={source.id}
               href={source.url}
               target="_blank"
               rel="noreferrer"
-              className="rounded-lg border border-border bg-white p-3 text-left shadow-sm hover:border-[var(--color-muted-olive)]"
+              className="min-w-0 overflow-hidden rounded-lg border border-border bg-white p-3 text-left shadow-sm hover:border-[var(--color-muted-olive)]"
             >
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <p className="truncate text-xs font-semibold text-dark">{source.name}</p>
-                  <p className="mt-1 text-[10px] font-semibold text-[var(--color-ash-brown)]">{source.bestFor}</p>
+                  <p className="mt-1 line-clamp-2 text-[10px] font-semibold text-[var(--color-ash-brown)]">{source.bestFor}</p>
                 </div>
                 <ExternalLink size={13} className="shrink-0 text-[var(--color-ash-brown)]" />
               </div>

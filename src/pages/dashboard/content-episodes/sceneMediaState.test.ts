@@ -73,6 +73,30 @@ test('mergeSceneMediaFromDoc keeps scene-specific video and tts urls', () => {
   assert.equal(merged.episodeSceneDocId, 'doc-2');
 });
 
+test('mergeSceneMediaFromDoc does not replace a catalog scene id with a take scene id', () => {
+  const catalogCard: EpisodeSceneCard = {
+    ...baseScene,
+    episodeSceneDocId: 'catalog-scene-2',
+    catalogStatus: 'generating',
+  };
+  const merged = mergeSceneMediaFromDoc(catalogCard, {
+    _id: 'take-scene-2',
+    episodeId: 'take-episode',
+    moduleId: 'module-1',
+    sceneNumber: 2,
+    startSec: 10,
+    endSec: 20,
+    voiceOver: '',
+    visualPrompt: '',
+    characterHandles: [],
+    status: 'queued',
+  }, 'catalog-episode');
+
+  assert.equal(merged.episodeSceneDocId, 'catalog-scene-2');
+  assert.equal(merged.catalogStatus, 'generating');
+  assert.equal(merged.sceneVideoTakeId, 'take-episode');
+});
+
 test('mergeSceneMediaFromDoc maps pending_approval as playable, not generating', () => {
   const merged = mergeSceneMediaFromDoc(baseScene, {
     _id: 'doc-2',
@@ -86,12 +110,14 @@ test('mergeSceneMediaFromDoc maps pending_approval as playable, not generating',
     characterHandles: [],
     status: 'pending_approval',
     cloudinaryUrl: 'https://res.cloudinary.com/demo/video/upload/scene-2.mp4',
+    lastFrameUrl: 'https://res.cloudinary.com/demo/image/upload/scene-2-last.jpg',
   });
 
   assert.equal(merged.sceneVideoStatus, 'pending_approval');
   assert.equal(merged.catalogStatus, 'pending_approval');
   assert.equal(merged.approved, false);
   assert.equal(merged.sceneVideoUrl, 'https://res.cloudinary.com/demo/video/upload/scene-2.mp4');
+  assert.equal(merged.lastFrameUrl, 'https://res.cloudinary.com/demo/image/upload/scene-2-last.jpg');
 });
 
 test('mergeSceneMediaFromDoc keeps narration audioSegmentUrl distinct from dialogue ttsAudioUrl', () => {

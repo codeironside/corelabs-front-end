@@ -21,8 +21,8 @@ export function MonitorCanvas({
     <div className="rounded-xl border border-border bg-[var(--color-ash-brown)] p-4">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--color-vanilla-cream)]/70">Composition Live Monitor</p>
-          <p className="mt-1 text-sm font-semibold text-[var(--color-vanilla-cream)]">{selectedScene ? `Scene ${selectedScene.sceneNumber}` : 'No scene selected'}</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-white/70">Composition Live Monitor</p>
+          <p className="mt-1 text-sm font-semibold text-white">{selectedScene ? `Scene ${selectedScene.sceneNumber}` : 'No scene selected'}</p>
         </div>
         <span className="rounded-full bg-white/10 px-3 py-1 text-[11px] font-semibold text-[var(--color-vanilla-cream)]">{aspectRatio}</span>
       </div>

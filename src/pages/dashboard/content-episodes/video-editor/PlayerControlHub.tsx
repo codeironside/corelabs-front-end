@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent, type ReactNode } from 'react';
 import { Captions, Loader2, Maximize2, Pause, Play, RefreshCcw, Scissors, Shrink, Volume2, VolumeX } from 'lucide-react';
 import type { EpisodeSceneCard } from '../storyboard';
-import { directStudioMediaUrl, preventMediaContextMenu, protectedMediaSurfaceClass, protectedVideoProps, resolveProtectedAudioPlaybackUrl, useProtectedMediaSrc } from '../protectedMedia';
+import { directStudioMediaUrl, preventMediaContextMenu, protectedMediaSurfaceClass, protectedVideoProps, resolveProtectedAudioPlaybackUrl, useProtectedMediaSrc, useProtectedVideoSrc } from '../protectedMedia';
 import { effectiveAudioVolume, audioLayersSignature, scheduledAudioLayers } from './audioPlayback';
 import { connectAudioWithFx, resumeAudioContext, type AudioChainHandle } from './audioEffectChain';
 import { filterLayersForSolo } from './audioLaneSolo';
@@ -58,7 +58,7 @@ function HubButton({
       aria-label={label}
       disabled={disabled}
       onClick={onClick}
-      className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-white text-[var(--color-ash-brown)] shadow-sm ring-1 ring-border hover:bg-[var(--color-tea-green)] disabled:opacity-40"
+      className="studio-touch-target inline-flex items-center justify-center rounded-lg bg-white text-[var(--color-ash-brown)] shadow-sm ring-1 ring-border hover:bg-[var(--color-tea-green)] disabled:opacity-40"
     >
       {children}
     </button>
@@ -171,10 +171,11 @@ export function PlayerControlHub({
       || currentScene?.sceneVideoUrl
       || finalVideoUrl
       || '';
-  const { src: protectedActiveVideoUrl, loading: activeVideoLoading, error: activeVideoError } = useProtectedMediaSrc(activeVideoUrl || undefined);
-  const { src: protectedNextVideoUrl } = useProtectedMediaSrc(
+  const { src: protectedActiveVideoUrl, loading: activeVideoLoading, error: activeVideoError } = useProtectedVideoSrc(activeVideoUrl || undefined);
+  const { src: protectedNextVideoUrl } = useProtectedVideoSrc(
     !useMasterPreview && upcomingClip?.url ? upcomingClip.url : undefined,
   );
+  const { src: activePosterUrl } = useProtectedMediaSrc(currentScene?.lastFrameUrl);
   const monitorVideoSrc = videoFallbackSrc || protectedActiveVideoUrl;
   const activeScene = currentScene;
   const outgoingTransition = currentClip ? transitions[currentClip.scene.id] ?? 'cut' : 'cut';
@@ -827,8 +828,8 @@ export function PlayerControlHub({
     <div className="rounded-xl border border-border bg-[var(--color-ash-brown)] p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--color-vanilla-cream)]/70">Composition Monitor Hub</p>
-          <p className="mt-1 text-sm font-semibold text-[var(--color-vanilla-cream)]">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-white/70">Composition Monitor Hub</p>
+          <p className="mt-1 text-sm font-semibold text-white">
             {timelineClips.length > 1
               ? `Continuous preview ┬╖ Scene ${activeScene?.sceneNumber ?? '-'} of ${timelineClips.length}`
               : activeScene
@@ -838,7 +839,8 @@ export function PlayerControlHub({
                   : 'No scene selected'}
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="studio-horizontal-scroll max-w-full">
+          <div className="flex min-w-max items-center gap-2 pb-1">
           <HubButton label={isPlaying ? 'Pause preview' : 'Play preview'} disabled={!monitorVideoSrc || activeVideoLoading} onClick={togglePlayback}>
             {isPlaying ? <Pause size={16} /> : <Play size={16} />}
           </HubButton>
@@ -865,6 +867,7 @@ export function PlayerControlHub({
               </button>
             ))}
           </div>
+          </div>
         </div>
       </div>
 
@@ -886,6 +889,7 @@ export function PlayerControlHub({
               {...protectedVideoProps}
               preload="auto"
               src={monitorVideoSrc}
+              poster={activePosterUrl}
               muted={muted || Boolean(activeScene && sceneAudioMuted[activeScene.id])}
               onPlay={() => setPlayingState(true)}
               onPause={() => {

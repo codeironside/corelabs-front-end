@@ -1,11 +1,11 @@
 ﻿import { useCallback, useEffect, useRef, useState, type PointerEvent, type VideoHTMLAttributes } from 'react';
 import { Loader2, Maximize2, Pause, Play, Volume2, VolumeX } from 'lucide-react';
 import {
-  directStudioMediaUrl,
   preventMediaContextMenu,
   protectedMediaSurfaceClass,
   protectedVideoProps,
   useProtectedMediaSrc,
+  useProtectedVideoSrc,
 } from './protectedMedia';
 
 function formatTime(seconds: number) {
@@ -17,6 +17,7 @@ function formatTime(seconds: number) {
 
 type ProtectedStudioVideoProps = {
   originUrl?: string;
+  posterUrl?: string;
   className?: string;
   videoClassName?: string;
   autoPlay?: boolean;
@@ -29,6 +30,7 @@ type ProtectedStudioVideoProps = {
 
 export function ProtectedStudioVideo({
   originUrl,
+  posterUrl,
   className = '',
   videoClassName = '',
   autoPlay = false,
@@ -42,18 +44,14 @@ export function ProtectedStudioVideo({
   const wrapRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const barRef = useRef<HTMLDivElement>(null);
-  const { src: protectedSrc, loading, error } = useProtectedMediaSrc(originUrl);
-  const [fallbackSrc, setFallbackSrc] = useState<string | undefined>();
-  const src = fallbackSrc ?? protectedSrc;
+  const { src: protectedSrc, loading, error } = useProtectedVideoSrc(originUrl);
+  const { src: posterSrc } = useProtectedMediaSrc(posterUrl);
+  const src = protectedSrc;
   const [playing, setPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(muted);
   const [volume, setVolume] = useState(1);
   const [current, setCurrent] = useState(0);
   const [duration, setDuration] = useState(0);
-
-  useEffect(() => {
-    setFallbackSrc(undefined);
-  }, [originUrl]);
 
   useEffect(() => {
     setIsMuted(muted);
@@ -84,14 +82,18 @@ export function ProtectedStudioVideo({
     const video = videoRef.current;
     if (!video || !src) return;
     if (video.paused) {
-      void video.play();
-      setPlaying(true);
-      onPlayStateChange?.(true);
-    } else {
-      video.pause();
-      setPlaying(false);
-      onPlayStateChange?.(false);
+      void video.play().then(() => {
+        setPlaying(true);
+        onPlayStateChange?.(true);
+      }).catch(() => {
+        setPlaying(false);
+        onPlayStateChange?.(false);
+      });
+      return;
     }
+    video.pause();
+    setPlaying(false);
+    onPlayStateChange?.(false);
   }, [onPlayStateChange, src]);
 
   const seek = useCallback((time: number) => {
@@ -127,13 +129,18 @@ export function ProtectedStudioVideo({
       onContextMenu={preventMediaContextMenu}
     >
       {loading ? (
-        <div className="flex aspect-video min-h-[10rem] items-center justify-center text-white/80">
-          <Loader2 size={28} className="animate-spin" />
+        <div className="relative flex aspect-video min-h-[10rem] items-center justify-center text-white/80">
+          {posterSrc ? <img src={posterSrc} alt="" className="absolute inset-0 h-full w-full object-contain" /> : null}
+          <Loader2 size={28} className="relative z-10 animate-spin" />
         </div>
       ) : error || !src ? (
-        <div className="flex aspect-video min-h-[10rem] items-center justify-center px-6 text-center text-xs font-medium text-white/75">
-          Protected preview unavailable. Refresh and try again.
-        </div>
+        posterSrc ? (
+          <img src={posterSrc} alt="" className={`h-full w-full object-contain ${videoClassName}`} />
+        ) : (
+          <div className="flex aspect-video min-h-[10rem] items-center justify-center px-6 text-center text-xs font-medium text-white/75">
+            Protected preview unavailable. Refresh and try again.
+          </div>
+        )
       ) : (
         <>
           <video
@@ -141,6 +148,7 @@ export function ProtectedStudioVideo({
             {...protectedVideoProps}
             {...videoProps}
             src={src}
+            poster={posterSrc}
             muted={isMuted}
             loop={loop}
             className={`h-full w-full object-contain ${videoClassName}`}
@@ -153,7 +161,7 @@ export function ProtectedStudioVideo({
             }}
             onLoadedMetadata={() => {
               const video = videoRef.current;
-              if (video) setDuration(video.duration || 0);
+              if (video) setDuration(Number.isFinite(video.duration) ? video.duration : 0);
             }}
             onPlay={() => {
               setPlaying(true);
@@ -164,14 +172,8 @@ export function ProtectedStudioVideo({
               onPlayStateChange?.(false);
             }}
             onEnded={() => onEnded?.()}
-            onError={() => {
-              const direct = directStudioMediaUrl(originUrl);
-              if (direct && fallbackSrc !== direct) {
-                setFallbackSrc(direct);
-              }
-            }}
           />
-          <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/45 to-transparent px-3 pb-2 pt-8 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+          <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/45 to-transparent px-3 pb-2 pt-8">
             <div
               ref={barRef}
               role="slider"

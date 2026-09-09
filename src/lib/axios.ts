@@ -15,8 +15,20 @@ export const studioClient: AxiosInstance = createClient(config.studioApiUrl);
 const apiClient: AxiosInstance = studioClient;
 export default apiClient;
 
+function isAuthSessionRequest(url: string | undefined): boolean {
+  if (!url) return false;
+  return (
+    url.includes('/auth/refresh')
+    || url.includes('/auth/google')
+    || url.includes('/auth/complete-signup')
+  );
+}
+
 function attachBearer(client: AxiosInstance): void {
   client.interceptors.request.use((requestConfig: InternalAxiosRequestConfig): InternalAxiosRequestConfig => {
+    if (isAuthSessionRequest(requestConfig.url)) {
+      return requestConfig;
+    }
     const token = useAuthStore.getState().accessToken;
     if (token) {
       requestConfig.headers.Authorization = `Bearer ${token}`;
@@ -62,7 +74,7 @@ studioClient.interceptors.response.use(
     }
 
     const original = error.config as RetryableRequestConfig | undefined;
-    if (!original || original.__retried) {
+    if (!original || original.__retried || isAuthSessionRequest(original.url)) {
       useAuthStore.getState().logout();
       throw error;
     }

@@ -4,6 +4,7 @@ import { defaultRangeExtractor } from '@tanstack/virtual-core';
 import {
   chapterStatusSummary,
   defaultChapterCollapsedMap,
+  episodeNeedsNarrationTts,
   flattenCommittedBoardRows,
   groupScenesByChapter,
   needsChapterSplit,
@@ -11,6 +12,7 @@ import {
 } from './episodePipeline.ts';
 import { approvalProgress, focusApprovalScene } from './sceneApproval.ts';
 import { formatEpisodeRuntimeLabel, sceneCountForDuration } from './storyboard.ts';
+import { isTargetRuntimeLocked } from './episodeRuntimeLock.ts';
 
 test('target runtime presets map to uncapped scene counts', () => {
   assert.equal(sceneCountForDuration(60), 6);
@@ -24,6 +26,26 @@ test('target runtime presets map to uncapped scene counts', () => {
   assert.equal(needsChapterSplit('short script', 3600), true);
   assert.equal(needsChapterSplit('short script', 7200), true);
   assert.equal(needsChapterSplit('short script', 60), false);
+});
+
+test('TTS is skipped when default scene video audio is on', () => {
+  assert.equal(episodeNeedsNarrationTts(true), false);
+  assert.equal(episodeNeedsNarrationTts(false), true);
+  assert.equal(episodeNeedsNarrationTts(undefined), true);
+});
+
+test('target runtime locks after video generation starts, not after TTS', () => {
+  assert.equal(isTargetRuntimeLocked({ episodeStatus: 'draft' }), false);
+  assert.equal(isTargetRuntimeLocked({ episodeStatus: 'scenes_ready' }), false);
+  assert.equal(isTargetRuntimeLocked({ episodeStatus: 'generating' }), true);
+  assert.equal(isTargetRuntimeLocked({
+    episodeStatus: 'draft',
+    scenes: [{ catalogStatus: 'pending_approval' }],
+  }), true);
+  assert.equal(isTargetRuntimeLocked({
+    episodeStatus: 'draft',
+    sceneDocs: [{ status: 'generating' }],
+  }), true);
 });
 
 test('single-chapter episodes stay a flat list with no Chapter 1 wrapper', () => {

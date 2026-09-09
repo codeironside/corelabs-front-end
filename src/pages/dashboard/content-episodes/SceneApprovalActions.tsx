@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CheckCircle2, Loader2, PencilLine, RefreshCcw, X } from 'lucide-react';
+import { CheckCircle2, Loader2, PencilLine, RefreshCcw, Square, X } from 'lucide-react';
 import type { EpisodeSceneCard } from './storyboard';
 import { sceneCatalogStatusLabel } from './sceneMediaState';
 import { isSceneGenerationStuck } from './sceneApproval';
@@ -10,12 +10,14 @@ export function SceneApprovalActions({
   onApprove,
   onRetry,
   onEditRetry,
+  onCancel,
 }: {
   scene: EpisodeSceneCard;
   busy?: boolean;
   onApprove: (scene: EpisodeSceneCard) => void;
   onRetry: (scene: EpisodeSceneCard) => void;
   onEditRetry: (scene: EpisodeSceneCard, editedBeat: string) => void;
+  onCancel?: (scene: EpisodeSceneCard) => void;
 }) {
   const status = scene.catalogStatus;
   const stuck = isSceneGenerationStuck(scene);
@@ -35,9 +37,20 @@ export function SceneApprovalActions({
 
   if ((status === 'generating' || status === 'queued') && !stuck) {
     return (
-      <span className="inline-flex items-center gap-2 text-[11px] font-semibold text-[var(--color-ash-brown)]">
-        <Loader2 size={13} className="animate-spin" /> Generating
-      </span>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="inline-flex items-center gap-2 text-[11px] font-semibold text-[var(--color-ash-brown)]">
+          <Loader2 size={13} className="animate-spin" /> Generating
+        </span>
+        {onCancel ? (
+          <button
+            type="button"
+            onClick={() => onCancel(scene)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-2.5 py-1.5 text-[11px] font-semibold text-red-700"
+          >
+            <Square size={11} /> Stop
+          </button>
+        ) : null}
+      </div>
     );
   }
 
@@ -45,6 +58,15 @@ export function SceneApprovalActions({
     return (
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-[11px] font-semibold text-red-700">Generation may have failed</span>
+        {onCancel && (status === 'generating' || status === 'queued') ? (
+          <button
+            type="button"
+            onClick={() => onCancel(scene)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-2.5 py-1.5 text-[11px] font-semibold text-red-700"
+          >
+            <Square size={11} /> Stop
+          </button>
+        ) : null}
         <button
           type="button"
           disabled={busy}

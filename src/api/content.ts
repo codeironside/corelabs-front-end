@@ -161,6 +161,7 @@ export interface ContentEpisode {
   publishedAt?: string;
   textOutput?: string;
   sceneOnly?: boolean;
+  sourceEpisodeId?: string;
   lastError?: string;
   createdAt?: string;
   updatedAt?: string;
@@ -241,6 +242,8 @@ export interface ContentTheme {
   authorName: string;
   defaultGenre?: string;
   defaultStoryPrompt?: string;
+  atmosphericVibe?: string;
+  videoStyle?: string;
   referenceImages?: ReferenceImage[];
   createdAt: string;
   updatedAt: string;
@@ -616,11 +619,11 @@ export const generateEpisodeSceneVideo = async (payload: {
     ttsLabel?: string;
   };
   assets?: Array<{ name: string; tag?: string; url?: string; s3Url?: string; s3Key?: string; publicId?: string; characterHandle?: string }>;
-}): Promise<EpisodeGeneratedMedia> => {
+}, signal?: AbortSignal): Promise<EpisodeGeneratedMedia> => {
   const { data } = await apiClient.post<ApiResponse<EpisodeGeneratedMedia>>(
     "/content/episodes/scenes/video/generate",
     payload,
-    { timeout: 600_000 },
+    { timeout: 600_000, signal },
   );
   return data.data;
 };
@@ -711,6 +714,10 @@ export const renderEpisodeTimeline = async (payload: {
   return data.data;
 };
 
+export function isCatalogEpisode(episode: Pick<ContentEpisode, "sceneOnly" | "sourceEpisodeId">): boolean {
+  return !episode.sceneOnly && !episode.sourceEpisodeId;
+}
+
 export const listContentEpisodes = async (params: {
   moduleId: string;
   status?: ContentEpisode["status"];
@@ -718,7 +725,9 @@ export const listContentEpisodes = async (params: {
   const { data } = await apiClient.get<
     ApiResponse<{ episodes: ContentEpisode[] }>
   >("/content/episodes", { params });
-  return data.data.episodes.filter((episode) => String(episode.moduleId) === String(params.moduleId));
+  return data.data.episodes.filter(
+    (episode) => String(episode.moduleId) === String(params.moduleId) && isCatalogEpisode(episode),
+  );
 };
 
 export const getContentEpisode = async (
@@ -780,6 +789,7 @@ export const generateEpisodeNarrationTrack = async (
     voiceProfile: string;
     tonePreset?: string;
     toneDirection?: string;
+    runtimeTargetSeconds?: number;
   },
 ): Promise<{ episode: ContentEpisode; trackUrl: string; durationSeconds: number }> => {
   const { data } = await apiClient.post<
@@ -889,7 +899,7 @@ export const commitEpisodeScenes = async (
 ): Promise<{ episode: ContentEpisode; sceneCount: number; scenes: ContentEpisodeScene[] }> => {
   const { data } = await apiClient.post<
     ApiResponse<{ episode: ContentEpisode; sceneCount: number; scenes: ContentEpisodeScene[] }>
-  >(`/content/episodes/${episodeId}/commit-scenes`, body);
+  >(`/content/episodes/${episodeId}/commit-scenes`, body, { timeout: 900_000 });
   return data.data;
 };
 
@@ -905,6 +915,7 @@ export const listContentEpisodeScenes = async (
 export const startSequentialEpisodeGeneration = async (
   episodeId: string,
   body?: { model?: string },
+  signal?: AbortSignal,
 ): Promise<{
   episode: ContentEpisode;
   scene?: ContentEpisodeScene;
@@ -918,7 +929,7 @@ export const startSequentialEpisodeGeneration = async (
       takeEpisodeId?: string;
       status: string;
     }>
-  >(`/content/episodes/${episodeId}/scenes/generate-next`, body ?? {}, { timeout: 600_000 });
+  >(`/content/episodes/${episodeId}/scenes/generate-next`, body ?? {}, { timeout: 600_000, signal });
   return data.data;
 };
 
@@ -947,6 +958,7 @@ export const regenerateEpisodeScene = async (
   episodeId: string,
   sceneId: string,
   body: { reason: "retry" | "edited"; editedBeat?: string; model?: string },
+  signal?: AbortSignal,
 ): Promise<{
   episode: ContentEpisode;
   scene: ContentEpisodeScene;
@@ -960,7 +972,23 @@ export const regenerateEpisodeScene = async (
       takeEpisodeId?: string;
       status: string;
     }>
-  >(`/content/episodes/${episodeId}/scenes/${sceneId}/regenerate`, body, { timeout: 600_000 });
+  >(`/content/episodes/${episodeId}/scenes/${sceneId}/regenerate`, body, { timeout: 600_000, signal });
+  return data.data;
+};
+
+export const cancelEpisodeSceneGeneration = async (
+  episodeId: string,
+  sceneId: string,
+): Promise<{
+  episode: ContentEpisode;
+  scene: ContentEpisodeScene;
+}> => {
+  const { data } = await apiClient.post<
+    ApiResponse<{
+      episode: ContentEpisode;
+      scene: ContentEpisodeScene;
+    }>
+  >(`/content/episodes/${episodeId}/scenes/${sceneId}/cancel-generation`);
   return data.data;
 };
 
@@ -1208,6 +1236,8 @@ export const createTheme = async (payload: {
   authorName: string;
   defaultGenre?: string;
   defaultStoryPrompt?: string;
+  atmosphericVibe?: string;
+  videoStyle?: string;
 }): Promise<ContentTheme> => {
   const { data } = await apiClient.post<ApiResponse<{ theme: ContentTheme }>>(
     "/content/themes",
@@ -1224,6 +1254,8 @@ export const updateTheme = async (
     authorName: string;
     defaultGenre: string;
     defaultStoryPrompt: string;
+    atmosphericVibe: string;
+    videoStyle: string;
   }>,
 ): Promise<ContentTheme> => {
   const { data } = await apiClient.patch<ApiResponse<{ theme: ContentTheme }>>(

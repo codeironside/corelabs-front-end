@@ -20,8 +20,8 @@ function BeatCard({
     <div className="rounded-lg border border-border bg-white p-3">
       <div className="mb-2 flex items-center justify-between gap-2">
         <span className="text-xs font-semibold text-dark">Scene {beat.beatIndex + 1}</span>
-        <span className="rounded-full bg-[var(--color-tea-green)]/35 px-2 py-0.5 text-[10px] font-semibold capitalize text-[var(--color-ash-brown)]">
-          {beat.complexity}
+        <span className="rounded-full bg-[var(--color-tea-green)]/35 px-2 py-0.5 text-[10px] font-semibold text-[var(--color-ash-brown)]">
+          {beat.setting} · {beat.durationSec}s
         </span>
       </div>
       {editable ? (
@@ -38,7 +38,7 @@ function BeatCard({
             Action
             <textarea
               className="input-field studio-textarea mt-1 text-xs"
-              rows={2}
+              rows={6}
               value={beat.actionSummary}
               onChange={(event) => onChangeBeat(beat.beatIndex, { ...beat, actionSummary: event.target.value })}
             />
@@ -47,7 +47,7 @@ function BeatCard({
       ) : (
         <>
           <p className="text-[11px] font-medium text-dark">{beat.setting}</p>
-          <p className="mt-1 text-[11px] leading-relaxed text-muted">{beat.actionSummary}</p>
+          <p className="mt-1 whitespace-pre-wrap text-[11px] leading-relaxed text-muted">{beat.actionSummary}</p>
         </>
       )}
     </div>

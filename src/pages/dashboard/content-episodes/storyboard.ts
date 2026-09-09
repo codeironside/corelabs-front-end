@@ -64,6 +64,7 @@ export type EpisodeSceneCard = {
   chapterTitle?: string;
   generationStartedAt?: string;
   updatedAt?: string;
+  lastFrameUrl?: string;
 };
 
 const CHARACTER_LIBRARY_MARKER = 'CHARACTER_REFERENCE_LIBRARY_JSON';

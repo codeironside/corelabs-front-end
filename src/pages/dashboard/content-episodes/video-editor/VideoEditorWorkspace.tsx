@@ -83,6 +83,7 @@ export function VideoEditorWorkspace({
   onApproveScene,
   onRetryScene,
   onEditRetryScene,
+  onCancelScene,
   onVideoModelChange,
 }: VideoEditorWorkspaceProps) {
   const [aspectRatio, setAspectRatio] = useState<EditorAspectRatio>('9:16');
@@ -155,7 +156,7 @@ export function VideoEditorWorkspace({
   }
 
   return (
-    <section className="flex max-h-[min(82vh,calc(100vh-5rem))] flex-col overflow-hidden rounded-xl border border-border bg-white shadow-sm">
+    <section className="studio-video-editor rounded-xl border border-border bg-white shadow-sm">
       <div className="shrink-0 border-b border-border bg-white p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex items-start gap-3">
@@ -200,8 +201,8 @@ export function VideoEditorWorkspace({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
-      <div className="studio-video-editor-grid">
+      <div className="studio-video-editor-body">
+        <div className="studio-video-editor-col studio-video-editor-col--scenes">
         <AssetMediaBin
           selectedModule={selectedModule}
           scenes={scenes}
@@ -213,10 +214,13 @@ export function VideoEditorWorkspace({
           onApproveScene={onApproveScene}
           onRetryScene={onRetryScene}
           onEditRetryScene={onEditRetryScene}
+          onCancelScene={onCancelScene}
           approvalBusy={approvalBusy}
         />
+        </div>
 
-        <main className="min-w-0 border-b border-border xl:border-b-0">
+        <div className="studio-video-editor-col studio-video-editor-col--editor">
+        <main className="min-w-0">
           <div className="studio-video-editor-main">
             <div className="p-4">
               <PlayerControlHub
@@ -310,7 +314,9 @@ export function VideoEditorWorkspace({
             onRemoveBrollLayer={onRemoveBrollLayer}
           />
         </main>
+        </div>
 
+        <div className="studio-video-editor-col studio-video-editor-col--inspector">
         <ClipInspectorPanel
           selectedScene={selectedScene}
           inspector={inspector}
@@ -333,9 +339,10 @@ export function VideoEditorWorkspace({
           onUpdateScene={onUpdateScene}
           onApproveScene={onApproveScene}
           onRetryScene={onRetryScene}
+          onCancelScene={onCancelScene}
           onRenderMaster={renderWithTimeline}
         />
-      </div>
+        </div>
       </div>
     </section>
   );

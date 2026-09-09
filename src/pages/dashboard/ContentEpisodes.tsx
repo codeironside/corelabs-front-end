@@ -40,8 +40,9 @@ import {
   scenesReadyForGeneration,
   type EpisodeScriptWorkflow,
 } from './content-episodes/episodeGeneration';
+import { episodeNeedsNarrationTts } from './content-episodes/episodePipeline';
 import { playEpisodeAudio } from './content-episodes/episodeAudioPlayback';
-import { episodeSceneCardFromDoc, mergeSceneMediaFromDoc, restoreSelectedCharacterRefIds, sceneCatalogStatusLabel, sceneDocEpisodeKey, shouldApplySceneDocToCard } from './content-episodes/sceneMediaState';
+import { catalogSceneActionId, episodeSceneCardFromDoc, mergeSceneMediaFromDoc, restoreSelectedCharacterRefIds, sceneCatalogStatusLabel, sceneDocEpisodeKey, shouldApplySceneDocToCard } from './content-episodes/sceneMediaState';
 import { SceneApprovalActions } from './content-episodes/SceneApprovalActions';
 import { approvalProgress, isSceneGenerationStuck, stitchBlockedMessage, unapprovedSceneCount } from './content-episodes/sceneApproval';
 import { ProtectedStudioVideo } from './content-episodes/ProtectedStudioVideo';
@@ -69,6 +70,7 @@ import {
   parseThemeCharacterTtsProfiles,
   resolveLineTtsFromSpeaker,
 } from './content-episodes/characterTts';
+import { MISSING_VIDEO_STYLE_MESSAGE, themeNeedsVideoStyle } from './content-themes/themeVideoStyle';
 import { ThemeCharacterTtsSummary } from './content-episodes/ThemeCharacterTtsSummary';
 import { SceneDialogueTtsPanel } from './content-episodes/SceneDialogueTtsPanel';
 import { TtsVoiceSelect } from './content-episodes/TtsVoiceSelect';
@@ -86,6 +88,8 @@ import {
   type EpisodeSceneTtsLine,
 } from './content-episodes/sceneTts';
 import { EpisodePipelineFlow } from './content-episodes/EpisodePipelineFlow';
+import { VideoProviderSwitch } from './content-episodes/VideoProviderSwitch';
+import { isTargetRuntimeLocked, TARGET_RUNTIME_LOCKED_MESSAGE } from './content-episodes/episodeRuntimeLock';
 import { CommittedSceneBoard } from './content-episodes/CommittedSceneBoard';
 import { createEpisodeWorkspaceKey, canSaveEpisodeDraft, episodeCatalogId, resolveEpisodeSaveAction, sameCatalogId } from './content-episodes/episodeWorkspace';
 import { VideoEditorWorkspace } from './content-episodes/video-editor/VideoEditorWorkspace';
@@ -105,7 +109,9 @@ import {
   startSequentialEpisodeGeneration,
   approveEpisodeScene,
   regenerateEpisodeScene,
+  cancelEpisodeSceneGeneration,
   listContentEpisodes,
+  isCatalogEpisode,
   listReusableAudioAssets,
   listSocialConnections,
   listAvailableAiModels,
@@ -140,6 +146,18 @@ type ReviewState = 'idle' | 'generating' | 'ready' | 'editing' | 'queued';
 type ScriptWorkflow = EpisodeScriptWorkflow;
 type OverlayAlign = 'left' | 'center' | 'right';
 type PublishPlatform = 'youtube' | 'tiktok' | 'instagram';
+
+function logSceneVideoFailure(error: unknown, fallback: string) {
+  const message = apiErrorMessage(error, fallback);
+  console.error(`[Studio] ${fallback}: ${message}`, error);
+  return message;
+}
+
+function isRequestAborted(error: unknown) {
+  if (!error || typeof error !== 'object') return false;
+  const record = error as { code?: string; name?: string };
+  return record.code === 'ERR_CANCELED' || record.name === 'CanceledError' || record.name === 'AbortError';
+}
 
 function apiErrorMessage(error: unknown, fallback: string) {
   if (
@@ -336,6 +354,19 @@ export function ContentEpisodes() {
   const activeEpisodeIdRef = useRef<string>('');
   const restoringEpisodeIdRef = useRef<string>('');
   const narrationTrackInputRef = useRef<HTMLInputElement>(null);
+  const sceneGenerationAbortRef = useRef<AbortController | null>(null);
+
+  function abortSceneGenerationRequest() {
+    sceneGenerationAbortRef.current?.abort();
+    sceneGenerationAbortRef.current = null;
+  }
+
+  function nextSceneGenerationSignal() {
+    abortSceneGenerationRequest();
+    const controller = new AbortController();
+    sceneGenerationAbortRef.current = controller;
+    return controller.signal;
+  }
   const [moduleId, setModuleId] = useState('');
   const { data: modules = [] } = useQuery({
     queryKey: ['content', 'modules'],
@@ -429,6 +460,7 @@ export function ContentEpisodes() {
     },
   });
   const syncSceneVideoDocs = useCallback((sceneDocs: ContentEpisodeScene[], pollEpisodeId?: string) => {
+    const catalogEpisodeId = activeEpisodeIdRef.current;
     setActiveEpisodeScenes((current) => {
       const merged = new Map(current.map((scene) => [sceneDocEpisodeKey(scene), scene]));
       sceneDocs.forEach((scene) => {
@@ -441,10 +473,17 @@ export function ContentEpisodes() {
       current.map((scene) => {
         const sceneDoc = sceneDocs.find((item) => shouldApplySceneDocToCard(scene, item, pollEpisodeId));
         if (!sceneDoc) return scene;
-        return mergeSceneMediaFromDoc(scene, sceneDoc);
+        return mergeSceneMediaFromDoc(scene, sceneDoc, catalogEpisodeId);
       }),
     );
   }, []);
+  function catalogIdFor(scene: EpisodeSceneCard) {
+    return catalogSceneActionId(
+      scene,
+      episodeCatalogId(activeEpisode?._id) || activeEpisodeIdRef.current,
+      activeEpisodeScenes,
+    );
+  }
   const applyEpisodePollResult = useCallback((result: EpisodeStatusResult) => {
     queryClient.setQueryData<ContentModule[]>(['content', 'modules'], (current) =>
       (current ?? []).map((item) => (item._id === result.module._id ? result.module : item)),
@@ -472,7 +511,7 @@ export function ContentEpisodes() {
     enabled: Boolean(moduleId),
   });
   const moduleEpisodes = useMemo(
-    () => savedEpisodes.filter((episode) => episode.moduleId === moduleId),
+    () => savedEpisodes.filter((episode) => episode.moduleId === moduleId && isCatalogEpisode(episode)),
     [moduleId, savedEpisodes],
   );
   const latestSavedEpisode = moduleEpisodes[0];
@@ -765,7 +804,8 @@ export function ContentEpisodes() {
   });
 
   const generateSceneVideoMut = useMutation({
-    mutationFn: generateEpisodeSceneVideoRequest,
+    mutationFn: (payload: Parameters<typeof generateEpisodeSceneVideoRequest>[0]) =>
+      generateEpisodeSceneVideoRequest(payload, nextSceneGenerationSignal()),
     onSuccess: (result, variables) => {
       if (result.takeId) {
         const sceneOnlyEpisode = Boolean((result.episode as { sceneOnly?: boolean } | undefined)?.sceneOnly);
@@ -794,13 +834,14 @@ export function ContentEpisodes() {
       toast.success('Scene video generation started.');
     },
     onError: (error: unknown, variables) => {
+      if (isRequestAborted(error)) return;
       updateScene(variables.scene.id, { sceneVideoStatus: 'failed' });
-      toast.error(apiErrorMessage(error, 'Could not generate this scene video.'));
+      toast.error(logSceneVideoFailure(error, 'Could not generate this scene video.'));
     },
   });
 
   const sequentialGenerateMut = useMutation({
-    mutationFn: () => startSequentialEpisodeGeneration(activeEpisode?._id as string, { model: videoModel || undefined }),
+    mutationFn: () => startSequentialEpisodeGeneration(activeEpisode?._id as string, { model: videoModel || undefined }, nextSceneGenerationSignal()),
     onSuccess: (result) => {
       if (result.episode) setActiveEpisode(result.episode);
       if (result.scene) syncSceneVideoDocs([result.scene]);
@@ -815,12 +856,15 @@ export function ContentEpisodes() {
       }
       toast.success(result.takeEpisodeId ? 'Scene video generation started.' : 'A scene is already generating.');
     },
-    onError: (error: unknown) => toast.error(apiErrorMessage(error, 'Could not start scene generation.')),
+    onError: (error: unknown) => {
+      if (isRequestAborted(error)) return;
+      toast.error(logSceneVideoFailure(error, 'Could not start scene generation.'));
+    },
   });
 
   const approveSceneMut = useMutation({
     mutationFn: (scene: EpisodeSceneCard) =>
-      approveEpisodeScene(activeEpisode?._id as string, scene.episodeSceneDocId ?? scene.id, { model: videoModel || undefined }),
+      approveEpisodeScene(activeEpisode?._id as string, catalogIdFor(scene), { model: videoModel || undefined }),
     onSuccess: (result) => {
       setActiveEpisode(result.episode);
       syncSceneVideoDocs([result.scene, ...(result.nextScene ? [result.nextScene] : [])]);
@@ -837,20 +881,54 @@ export function ContentEpisodes() {
   const regenerateSceneMut = useMutation({
     mutationFn: (input: { scene: EpisodeSceneCard; reason: 'retry' | 'edited'; editedBeat?: string }) => {
       if (input.editedBeat) updateScene(input.scene.id, { visualPrompt: input.editedBeat });
-      return regenerateEpisodeScene(activeEpisode?._id as string, input.scene.episodeSceneDocId ?? input.scene.id, {
+      return regenerateEpisodeScene(activeEpisode?._id as string, catalogIdFor(input.scene), {
         reason: input.reason,
         editedBeat: input.editedBeat,
         model: videoModel || undefined,
-      });
+      }, nextSceneGenerationSignal());
     },
-    onSuccess: (result, variables) => {
+    onMutate: (variables) => {
+      updateScene(variables.scene.id, { sceneVideoStatus: 'generating', catalogStatus: 'generating' });
+    },
+    onSuccess: (result) => {
       if (result.episode) setActiveEpisode(result.episode);
       if (result.scene) syncSceneVideoDocs([result.scene]);
-      updateScene(variables.scene.id, { sceneVideoStatus: 'generating', catalogStatus: 'generating' });
       void queryClient.invalidateQueries({ queryKey: ['content', 'episodes', activeEpisode?._id, 'scenes'] });
       toast.success('Scene regeneration started.');
     },
-    onError: (error: unknown) => toast.error(apiErrorMessage(error, 'Could not regenerate this scene.')),
+    onError: (error: unknown) => {
+      if (isRequestAborted(error)) return;
+      toast.error(logSceneVideoFailure(error, 'Could not regenerate this scene.'));
+    },
+  });
+
+  const cancelSceneGenerationMut = useMutation({
+    mutationFn: (scene: EpisodeSceneCard) => {
+      abortSceneGenerationRequest();
+      return cancelEpisodeSceneGeneration(activeEpisode?._id as string, catalogIdFor(scene));
+    },
+    onMutate: (scene) => {
+      updateScene(scene.id, {
+        catalogStatus: scene.sceneVideoUrl ? 'pending_approval' : 'rejected',
+        sceneVideoStatus: scene.sceneVideoUrl ? 'pending_approval' : 'failed',
+      });
+    },
+    onSuccess: (result, scene) => {
+      if (result.episode) setActiveEpisode(result.episode);
+      if (result.scene) syncSceneVideoDocs([result.scene]);
+      updateScene(scene.id, {
+        catalogStatus: result.scene.status,
+        sceneVideoStatus: result.scene.status === 'pending_approval' ? 'pending_approval'
+          : result.scene.status === 'ready' || result.scene.status === 'approved' ? 'ready'
+            : 'failed',
+      });
+      void queryClient.invalidateQueries({ queryKey: ['content', 'episodes', activeEpisode?._id, 'scenes'] });
+      toast.success('Scene generation stopped.');
+    },
+    onError: (error: unknown) => {
+      toast.error(apiErrorMessage(error, 'Could not stop this scene.'));
+      void queryClient.invalidateQueries({ queryKey: ['content', 'episodes', activeEpisode?._id, 'scenes'] });
+    },
   });
 
   const saveEpisodeDraftMut = useMutation({
@@ -863,8 +941,7 @@ export function ContentEpisodes() {
       const coverUrl = [payload.committedThumbnailUrl, payload.thumbnailPreviewUrl].find((url) =>
         /^https?:\/\//i.test(url),
       );
-      const spokenDuration = activeEpisode?.audio?.durationSeconds;
-      const durationToPersist = spokenDuration && spokenDuration > 0 ? Math.round(spokenDuration) : payload.duration;
+      const durationToPersist = payload.duration;
       const coverImage = coverUrl
         ? {
             url: coverUrl,
@@ -872,6 +949,17 @@ export function ContentEpisodes() {
             title_overlay: payload.committedThumbnailLabel || payload.thumbnailPreviewLabel || payload.title,
           }
         : undefined;
+      const runtimeLocked = isTargetRuntimeLocked({
+        episodeStatus: activeEpisode?.status,
+        scenes,
+        sceneDocs: activeEpisodeScenes,
+      });
+      const durationPatch = runtimeLocked
+        ? {}
+        : {
+            runtimeTargetSeconds: durationToPersist,
+            durationSeconds: durationToPersist,
+          };
       const audio = activeEpisode?.audio?.trackUrl
         ? {
             finalized: episodeAudioFinalized,
@@ -885,8 +973,7 @@ export function ContentEpisodes() {
         ? await updateContentEpisode(existingId, {
             title: payload.title.trim(),
             basePrompt: payload.basePrompt,
-            runtimeTargetSeconds: durationToPersist,
-            durationSeconds: durationToPersist,
+            ...durationPatch,
             reAnchorIntervalScenes: payload.reAnchorIntervalScenes ?? 15,
             soundEnabled: payload.soundEnabled,
             outputMode: payload.mode,
@@ -1019,23 +1106,35 @@ export function ContentEpisodes() {
       if (!episodeId) {
         throw new Error('Save the episode in Section 1 first.');
       }
+      const runtimeLocked = isTargetRuntimeLocked({
+        episodeStatus: activeEpisode?.status,
+        scenes,
+        sceneDocs: activeEpisodeScenes,
+      });
+      const runtimeTargetSeconds = runtimeLocked
+        ? (activeEpisode?.runtimeTargetSeconds ?? activeEpisode?.durationSeconds ?? duration)
+        : duration;
       await updateContentEpisode(episodeId, {
         title: title.trim() || 'Untitled episode',
         basePrompt,
+        soundEnabled,
+        ...(runtimeLocked ? {} : { runtimeTargetSeconds, durationSeconds: runtimeTargetSeconds }),
       });
       return generateEpisodeNarrationTrack(episodeId, {
         model: audioModel || undefined,
         voiceProfile,
         tonePreset: defaultTtsTonePreset,
         toneDirection: defaultTtsToneDirection.trim() || undefined,
+        runtimeTargetSeconds,
       });
     },
     onSuccess: (result) => {
       setActiveEpisode(result.episode);
       setEpisodeAudioFinalized(false);
-      if (result.durationSeconds > 0) setDuration(Math.round(result.durationSeconds));
       toast.success(
-        `Spoken track ready (${timestamp(Math.round(result.durationSeconds))}). Check “Episode audio finalized for beat breakdown” when it sounds right.`,
+        (result.episode.sceneCount ?? 0) > 0
+          ? `Per-scene narration ready (${timestamp(Math.round(result.durationSeconds))}). Scene 2 continues from the end of scene 1. Check “Episode audio finalized for beat breakdown” when it sounds right.`
+          : `Spoken track ready (${timestamp(Math.round(result.durationSeconds))}), fitted to the ${timestamp(duration)} target runtime. After you commit scene beats, narration is regenerated per scene so each clip continues from the previous ending.`,
       );
     },
     onError: (error: unknown) => toast.error(apiErrorMessage(error, error instanceof Error ? error.message : 'Could not generate the episode audio track.')),
@@ -1052,9 +1151,8 @@ export function ContentEpisodes() {
     onSuccess: (result) => {
       setActiveEpisode(result.episode);
       setEpisodeAudioFinalized(false);
-      if (result.durationSeconds > 0) setDuration(Math.round(result.durationSeconds));
       toast.success(
-        `Voiceover uploaded (${timestamp(Math.round(result.durationSeconds))}). Check “Episode audio finalized for beat breakdown” when it sounds right.`,
+        `Voiceover uploaded (${timestamp(Math.round(result.durationSeconds))}). Target runtime is unchanged. Check “Episode audio finalized for beat breakdown” when it sounds right.`,
       );
     },
     onError: (error: unknown) => toast.error(apiErrorMessage(error, error instanceof Error ? error.message : 'Could not upload the episode voiceover.')),
@@ -1254,15 +1352,20 @@ export function ContentEpisodes() {
     const nextAudio = aiModels.audio.some((m) => m.value === 'free:auto')
       ? 'free:auto'
       : aiModels.audio[0]?.value ?? 'free:auto';
-    const nextVideo = aiModels.video[0]?.value ?? '';
     if (textModel !== nextText) setTextModel(nextText);
     if (imageModel !== nextImage) setImageModel(nextImage);
     if (audioModel !== nextAudio) setAudioModel(nextAudio);
-    if (videoModel !== nextVideo) setVideoModel(nextVideo);
+    const videoValues = aiModels.video.map((model) => model.value);
+    if (!videoValues.length) {
+      if (videoModel) setVideoModel('');
+    } else if (!videoModel || !videoValues.includes(videoModel)) {
+      setVideoModel(videoValues[0]!);
+    }
   }, [aiModels, audioModel, imageModel, textModel, videoModel]);
 
   const selectedModule = modules.find((module) => module._id === moduleId);
   const selectedTheme = themes.find((theme) => theme._id === selectedModule?.themeId);
+  const selectedThemeNeedsVideoStyle = themeNeedsVideoStyle(selectedTheme);
   const themeCharacterRefs = useMemo(() => parseThemeCharacterReferences(selectedTheme), [selectedTheme]);
   const themeCharacterMentions = useMemo(() => parseThemeCharacterMentions(selectedTheme), [selectedTheme]);
   const characterTtsProfiles = useMemo(
@@ -1341,7 +1444,11 @@ export function ContentEpisodes() {
       if (segment.status === 'ready' && url) byScene.set(segment.sceneNumber, url);
     });
     scenes.forEach((scene) => {
-      if (scene.sceneVideoStatus === 'ready' && scene.sceneVideoUrl) {
+      const playable = scene.sceneVideoStatus === 'ready'
+        || scene.sceneVideoStatus === 'pending_approval'
+        || scene.catalogStatus === 'approved'
+        || scene.catalogStatus === 'pending_approval';
+      if (playable && scene.sceneVideoUrl) {
         byScene.set(scene.sceneNumber, scene.sceneVideoUrl);
       }
     });
@@ -1362,7 +1469,13 @@ export function ContentEpisodes() {
   const saveEpisodeLabel = episodeSaveAction === 'update' ? 'Save changes' : 'Save draft';
   const saveEpisodePendingLabel = episodeSaveAction === 'update' ? 'Saving changes...' : 'Saving draft...';
   const episodeNarrationTrackUrl = activeEpisode?.audio?.trackUrl;
-  const episodeNarrationReady = Boolean(episodeAudioFinalized && episodeNarrationTrackUrl);
+  const narrationTtsRequired = episodeNeedsNarrationTts(soundEnabled);
+  const episodeNarrationReady = !narrationTtsRequired || Boolean(episodeAudioFinalized && episodeNarrationTrackUrl);
+  const targetRuntimeLocked = isTargetRuntimeLocked({
+    episodeStatus: activeEpisode?.status,
+    scenes,
+    sceneDocs: activeEpisodeScenes,
+  });
   const narrationBusy = generateNarrationTrackMut.isPending || uploadNarrationTrackMut.isPending;
   const committedSceneCards = scenes.filter((scene) => Boolean(scene.episodeSceneDocId));
   const scenesQueueCommitted = Boolean(
@@ -1845,12 +1958,17 @@ export function ContentEpisodes() {
   }
 
   function canUseSceneTts(scene: EpisodeSceneCard) {
+    if (scene.sceneVideoAudioEnabled ?? soundEnabled) return false;
     return sceneHasReadyTts(scene) || Boolean(audioModel && ensureSceneTtsLines(scene, voiceProfile).some((line) => line.text.trim()));
   }
 
   function handleSceneTtsLine(sceneId: string, lineId: string) {
     const scene = scenes.find((item) => item.id === sceneId);
     if (!scene) return;
+    if (scene.sceneVideoAudioEnabled ?? soundEnabled) {
+      toast.error('This scene uses native video audio, so TTS is skipped. Turn off Clip audio to generate a voice-over.');
+      return;
+    }
     const lines = ensureSceneTtsLines(scene, voiceProfile);
     const line = lines.find((item) => item.id === lineId);
     if (!line) return;
@@ -1952,7 +2070,14 @@ export function ContentEpisodes() {
       }));
   }
 
+  function requireThemeVideoStyle() {
+    if (!selectedThemeNeedsVideoStyle) return true;
+    toast.error(MISSING_VIDEO_STYLE_MESSAGE);
+    return false;
+  }
+
   function handleGenerateSceneVideo(scene: EpisodeSceneCard) {
+    if (!requireThemeVideoStyle()) return;
     if (scene.catalogStatus === 'generating' && !isSceneGenerationStuck(scene)) {
       toast.error('This scene is already generating.');
       return;
@@ -2283,6 +2408,7 @@ export function ContentEpisodes() {
       return;
     }
     if (catalogApprovalRemaining > 0) {
+      if (!requireThemeVideoStyle()) return;
       sequentialGenerateMut.mutate();
       return;
     }
@@ -2294,6 +2420,7 @@ export function ContentEpisodes() {
       toast.error('Commit the scene queue before approving clips.');
       return;
     }
+    if (!requireThemeVideoStyle()) return;
     approveSceneMut.mutate(scene);
   }
 
@@ -2302,6 +2429,7 @@ export function ContentEpisodes() {
       toast.error('Commit the scene queue before regenerating clips.');
       return;
     }
+    if (!requireThemeVideoStyle()) return;
     regenerateSceneMut.mutate({ scene, reason: 'retry' });
   }
 
@@ -2310,7 +2438,16 @@ export function ContentEpisodes() {
       toast.error('Commit the scene queue before regenerating clips.');
       return;
     }
+    if (!requireThemeVideoStyle()) return;
     regenerateSceneMut.mutate({ scene, reason: 'edited', editedBeat });
+  }
+
+  function handleCancelScene(scene: EpisodeSceneCard) {
+    if (!activeEpisode?._id) {
+      toast.error('Commit the scene queue before stopping a clip.');
+      return;
+    }
+    cancelSceneGenerationMut.mutate(scene);
   }
 
   function handlePublishWebsite() {
@@ -2420,6 +2557,12 @@ export function ContentEpisodes() {
                 <p className="text-[10px] uppercase tracking-[0.18em] text-muted">Theme</p>
                 <p className="mt-1 text-sm font-semibold text-dark">{selectedTheme?.title ?? 'Inherited after module selection'}</p>
                 <p className="mt-2 line-clamp-4 text-xs leading-relaxed text-muted">{selectedTheme?.defaultStoryPrompt ?? 'Theme bible appears here as read-only context.'}</p>
+                {selectedThemeNeedsVideoStyle ? (
+                  <div className="mt-3 flex items-start gap-2 rounded-lg border border-[var(--color-faded-copper)]/50 bg-[var(--color-faded-copper)]/10 p-2">
+                    <AlertTriangle size={14} className="mt-0.5 shrink-0 text-[var(--color-faded-copper)]" />
+                    <p className="text-[11px] leading-relaxed text-[var(--color-ash-brown)]">{MISSING_VIDEO_STYLE_MESSAGE}</p>
+                  </div>
+                ) : null}
               </div>
               <div className="rounded-xl border border-[var(--color-tea-green)] bg-white p-3">
                 <p className="text-[10px] uppercase tracking-[0.18em] text-muted">Routing Destinations</p>
@@ -2543,7 +2686,7 @@ export function ContentEpisodes() {
                   </button>
                 ))}
 
-                <div className={`rounded-xl border p-4 ${mode === 'media' ? 'border-border bg-white' : 'border-border bg-white opacity-55'}`}>
+                  <div className={`rounded-xl border p-4 ${mode === 'media' ? 'border-border bg-white' : 'border-border bg-white opacity-55'}`}>
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <p className="text-sm font-semibold text-dark">Target Runtime</p>
@@ -2553,7 +2696,19 @@ export function ContentEpisodes() {
                   </div>
                   <div className="mt-4 flex flex-wrap gap-2">
                     {TARGET_DURATION_OPTIONS.map((seconds) => (
-                      <button key={seconds} type="button" disabled={mode !== 'media'} onClick={() => setDuration(seconds)} className={`rounded-lg border px-3 py-2 text-xs font-semibold disabled:opacity-40 ${duration === seconds ? 'border-[var(--color-muted-olive)] bg-[var(--color-muted-olive)] text-[var(--color-vanilla-cream)]' : 'border-border text-dark hover:border-[var(--color-muted-olive)]'}`}>
+                      <button
+                        key={seconds}
+                        type="button"
+                        disabled={mode !== 'media' || targetRuntimeLocked}
+                        onClick={() => {
+                          if (targetRuntimeLocked) {
+                            toast.error(TARGET_RUNTIME_LOCKED_MESSAGE);
+                            return;
+                          }
+                          setDuration(seconds);
+                        }}
+                        className={`rounded-lg border px-3 py-2 text-xs font-semibold disabled:opacity-40 ${duration === seconds ? 'border-[var(--color-muted-olive)] bg-[var(--color-muted-olive)] text-[var(--color-vanilla-cream)]' : 'border-border text-dark hover:border-[var(--color-muted-olive)]'}`}
+                      >
                         {seconds >= 3600 ? `${seconds / 3600}h` : seconds >= 60 ? `${seconds / 60}m` : `${seconds}s`}
                       </button>
                     ))}
@@ -2565,13 +2720,21 @@ export function ContentEpisodes() {
                       min={10}
                       max={MAX_EPISODE_DURATION_SEC}
                       step={10}
-                      disabled={mode !== 'media'}
+                      disabled={mode !== 'media' || targetRuntimeLocked}
                       value={duration}
                       onChange={(event) => setDuration(Math.min(MAX_EPISODE_DURATION_SEC, Math.max(10, Number(event.target.value) || 10)))}
                       className="input-field mt-1 text-sm disabled:opacity-40"
                     />
                   </label>
                   <p className="mt-2 text-[11px] text-muted">{targetSceneCount} scenes at ~10 seconds each — {formatEpisodeRuntimeLabel(duration)} total. Presets go to 2h ({sceneCountForDuration(MAX_EPISODE_DURATION_SEC)} scenes).</p>
+                  {typeof activeEpisode?.audio?.durationSeconds === 'number' && activeEpisode.audio.durationSeconds > 0 ? (
+                    <p className="mt-2 text-[11px] leading-relaxed text-muted">
+                      Spoken track length is {timestamp(Math.round(activeEpisode.audio.durationSeconds))}. Generated TTS is fitted to the target runtime, then chained per scene after commit. Uploaded voiceovers keep their recorded length and are sliced onto scenes.
+                    </p>
+                  ) : null}
+                  {targetRuntimeLocked ? (
+                    <p className="mt-2 text-[11px] leading-relaxed text-[var(--color-ash-brown)]">{TARGET_RUNTIME_LOCKED_MESSAGE}</p>
+                  ) : null}
                   <label className="mt-4 block text-xs font-medium text-muted">
                     Re-anchor character look every N scenes
                     <input
@@ -2589,14 +2752,32 @@ export function ContentEpisodes() {
                   <label className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-border p-3 text-sm font-semibold text-dark">
                     <span>
                       Default scene video audio
-                      <span className="mt-0.5 block text-[11px] font-normal text-muted">Default for new scene cards. TTS is always mixed on the timeline separately.</span>
+                      <span className="mt-0.5 block text-[11px] font-normal text-muted">When on, generated clips include native sound and TTS is skipped. Turn this off to generate a separate voice-over.</span>
                     </span>
-                    <input type="checkbox" checked={soundEnabled} disabled={mode !== 'media'} onChange={(e) => setSoundEnabled(e.target.checked)} />
+                    <input
+                      type="checkbox"
+                      checked={soundEnabled}
+                      disabled={mode !== 'media'}
+                      onChange={(event) => {
+                        const next = event.target.checked;
+                        setSoundEnabled(next);
+                        if (!activeEpisode?._id) return;
+                        void updateContentEpisode(activeEpisode._id, { soundEnabled: next })
+                          .then((episode) => setActiveEpisode(episode))
+                          .catch((error: unknown) => {
+                            setSoundEnabled(!next);
+                            toast.error(apiErrorMessage(error, 'Could not save Default scene video audio.'));
+                          });
+                      }}
+                    />
                   </label>
                 </div>
               </div>
 
               <div className="studio-model-grid">
+                <div className="studio-model-grid__voice">
+                  <VideoProviderSwitch models={aiModels.video} value={videoModel} onChange={setVideoModel} />
+                </div>
                 <div className="studio-model-grid__voice rounded-xl border border-[var(--color-tea-green)] bg-white p-4 md:col-span-full">
                   <div className="flex items-start gap-3">
                     <Headphones size={17} className="mt-0.5 text-[var(--color-ash-brown)]" />
@@ -2604,7 +2785,7 @@ export function ContentEpisodes() {
                       <div>
                         <p className="text-sm font-semibold text-dark">Voice-Over Control Panel</p>
                         <p className="mt-1 text-xs leading-relaxed text-muted">
-                          Models are routed automatically. Set narrator voice and mood, then generate or upload the full episode track. Theme characters keep their own voice/tone for dialogue in Section 4.
+                          Scene video uses the provider selected above. Set narrator voice and mood, then generate or upload the full episode track. TTS is only used when Default scene video audio is off — generated clips with native sound do not get a separate voice-over. When TTS runs, it is fitted to the target runtime and rebuilt per scene after commit so scene N+1 continues from the end of scene N.
                         </p>
                       </div>
                       <button type="button" onClick={playVoiceSample} disabled={voiceSamplePending} className="inline-flex items-center justify-center gap-2 rounded-xl border border-[var(--color-muted-olive)] px-4 py-2 text-sm font-semibold text-[var(--color-ash-brown)] disabled:opacity-45">
@@ -2635,8 +2816,12 @@ export function ContentEpisodes() {
                       <div className="md:col-span-2 flex flex-wrap gap-2">
                         <button
                           type="button"
-                          disabled={narrationBusy}
+                          disabled={narrationBusy || !narrationTtsRequired}
                           onClick={() => {
+                            if (!narrationTtsRequired) {
+                              toast.error('Default scene video audio is on, so TTS is skipped. Turn it off to generate a voice-over.');
+                              return;
+                            }
                             if (!activeEpisode?._id) {
                               toast.error('Save the episode in Section 1 first.');
                               return;
@@ -2654,8 +2839,12 @@ export function ContentEpisodes() {
                         </button>
                         <button
                           type="button"
-                          disabled={narrationBusy}
+                          disabled={narrationBusy || !narrationTtsRequired}
                           onClick={() => {
+                            if (!narrationTtsRequired) {
+                              toast.error('Default scene video audio is on, so TTS is skipped. Turn it off to upload a voice-over.');
+                              return;
+                            }
                             if (!activeEpisode?._id) {
                               toast.error('Save the episode in Section 1 first.');
                               return;
@@ -2680,20 +2869,25 @@ export function ContentEpisodes() {
                           }}
                         />
                       </div>
-                      {episodeNarrationTrackUrl ? (
+                      {!narrationTtsRequired ? (
+                        <p className="md:col-span-2 text-[11px] leading-relaxed text-muted">
+                          Default scene video audio is on, so generated clips include native sound and TTS is skipped. Turn that checkbox off to generate or upload a separate voice-over.
+                        </p>
+                      ) : episodeNarrationTrackUrl ? (
                         <div className="md:col-span-2 space-y-2 rounded-xl border border-[var(--color-tea-green)] bg-[var(--color-tea-green)]/10 p-3">
                           <p className="text-xs font-semibold text-dark">
                             Spoken track{typeof activeEpisode?.audio?.durationSeconds === 'number' ? `: ${timestamp(Math.round(activeEpisode.audio.durationSeconds))}` : ''}
                             {activeEpisode?.audio?.source === 'upload' ? ' · uploaded' : activeEpisode?.audio?.source === 'tts' ? ' · generated' : ''}
                           </p>
-                          <p className="text-[11px] text-muted">This is the full-episode narration used for beat timing. Timeline layers and per-scene dialogue TTS stay separate.</p>
+                          <p className="text-[11px] text-muted">This is the full-episode narration used for beat timing. After commit, generated tracks are rebuilt per scene so each clip starts where the previous one ended. Timeline layers and per-scene dialogue TTS stay separate.</p>
                           <ProtectedStudioAudio originUrl={episodeNarrationTrackUrl} label="Episode narration track" />
                         </div>
                       ) : (
                         <p className="md:col-span-2 text-[11px] leading-relaxed text-muted">
-                          Generate TTS from the Section 1 script, or upload a recorded voiceover. Beat breakdown stays locked until a track exists and you confirm it below.
+                          Scene video audio is off, so generate TTS from the Section 1 script (fitted to the target runtime) or upload a recorded voiceover. After scene beats are committed, generated narration is rebuilt per scene with last-N+1 continuity. Beat breakdown stays locked until a track exists and you confirm it below.
                         </p>
                       )}
+                      {narrationTtsRequired ? (
                       <div className="md:col-span-2">
                         <label className={`flex items-start gap-3 rounded-xl border border-[var(--color-tea-green)] p-3 text-sm font-semibold text-dark ${episodeNarrationTrackUrl ? '' : 'opacity-60'}`}>
                           <input
@@ -2735,6 +2929,7 @@ export function ContentEpisodes() {
                           </span>
                         </label>
                       </div>
+                      ) : null}
                       <div className="md:col-span-2">
                         <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">Theme character TTS presets (read-only)</p>
                         <ThemeCharacterTtsSummary
@@ -2982,7 +3177,7 @@ export function ContentEpisodes() {
             </div>
           </Panel>
 
-          <Panel title="4. Scene Pipeline — Script Breakdown & Sequential Generation" kicker="Paste your full script in Section 1, finalize audio, review auto-generated beats once, then approve each scene before the next generates." icon={Wand2}>
+          <Panel title="4. Scene Pipeline — Script Breakdown & Sequential Generation" kicker="Paste your full script in Section 1. If scene video audio is off, finalize TTS first. Then review auto-generated beats once and approve each scene before the next generates." icon={Wand2}>
             {moduleId ? (
               <EpisodePipelineFlow
                 moduleId={moduleId}
@@ -2992,6 +3187,7 @@ export function ContentEpisodes() {
                 script={basePrompt}
                 videoModel={videoModel}
                 audioReady={episodeNarrationReady}
+                nativeVideoAudio={soundEnabled}
                 runtimeTargetSeconds={duration}
                 selectedCharacters={selectedCharacterRefs.map((reference) => ({
                   id: reference.id,
@@ -3136,7 +3332,11 @@ export function ContentEpisodes() {
                       </div>
                       {scene.audioSegmentUrl ? (
                         <div className="mt-3 rounded-xl border border-[var(--color-tea-green)] bg-[var(--color-tea-green)]/10 p-3">
-                          <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">Narration segment (sliced from the episode track)</p>
+                          <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
+                            {activeEpisode?.audio?.source === 'upload'
+                              ? 'Narration segment (sliced from the uploaded track)'
+                              : 'Narration segment (continues from the previous scene)'}
+                          </p>
                           <ProtectedStudioAudio originUrl={scene.audioSegmentUrl} label={`Scene ${scene.sceneNumber} narration`} />
                         </div>
                       ) : null}
@@ -3147,6 +3347,7 @@ export function ContentEpisodes() {
                         narratorVoice={voiceProfile}
                         narratorTone={defaultTtsTone}
                         audioModel={audioModel}
+                        nativeVideoAudio={scene.sceneVideoAudioEnabled ?? soundEnabled}
                         onUpdateLine={(lineId, patch) => updateSceneDialogueLine(scene.id, lineId, patch)}
                         onAddLine={() => addSceneDialogueLine(scene.id)}
                         onRemoveLine={(lineId) => removeSceneDialogueLine(scene.id, lineId)}
@@ -3170,6 +3371,7 @@ export function ContentEpisodes() {
                               onChange={(event) => updateScene(scene.id, { sceneVideoAudioEnabled: event.target.checked })}
                             />
                             Clip audio
+                            <span className="block text-[10px] font-normal text-muted">Native video sound. Off = TTS instead.</span>
                           </label>
                           <button type="button" onClick={() => handleImproveScene(scene)} disabled={sceneBusy || !selectedModule} className="inline-flex items-center gap-2 rounded-xl border border-[var(--color-muted-olive)] px-3 py-2 text-xs font-semibold text-[var(--color-ash-brown)] disabled:opacity-45">
                             {improveSceneMut.isPending ? <Loader2 size={14} className="animate-spin" /> : <Wand2 size={14} />}
@@ -3226,10 +3428,10 @@ export function ContentEpisodes() {
                             <span className="text-[10px] font-semibold capitalize text-[var(--color-ash-brown)]">{sceneCatalogStatusLabel(scene.catalogStatus) || sceneVideoStatus}</span>
                           </div>
                           {sceneVideoUrl && sceneVideoStatus !== 'generating' ? (
-                            <ProtectedStudioVideo key={`${scene.id}-${sceneVideoUrl}`} originUrl={sceneVideoUrl} className="aspect-video w-full" videoClassName="rounded-lg" />
+                            <ProtectedStudioVideo key={`${scene.id}-${sceneVideoUrl}`} originUrl={sceneVideoUrl} posterUrl={scene.lastFrameUrl} className="aspect-video w-full" videoClassName="rounded-lg" />
                           ) : (
                             <div className="flex aspect-video items-center justify-center rounded-lg bg-[var(--color-ash-brown)] text-[var(--color-vanilla-cream)]">
-                              {sceneVideoStatus === 'generating' || scene.catalogStatus === 'generating' ? <Loader2 size={24} className="animate-spin" /> : <MonitorPlay size={24} />}
+                              {sceneVideoStatus === 'generating' || scene.catalogStatus === 'generating' || scene.catalogStatus === 'queued' ? <Loader2 size={24} className="animate-spin" /> : <MonitorPlay size={24} />}
                             </div>
                           )}
                           {linkedSceneDoc?.error && <p className="mt-2 text-xs leading-relaxed text-red-600">{linkedSceneDoc.error}</p>}
@@ -3240,6 +3442,7 @@ export function ContentEpisodes() {
                               onApprove={handleApproveScene}
                               onRetry={handleRetryScene}
                               onEditRetry={handleEditRetryScene}
+                              onCancel={handleCancelScene}
                             />
                           </div>
                         </div>
@@ -3320,6 +3523,7 @@ export function ContentEpisodes() {
             onApproveScene={handleApproveScene}
             onRetryScene={handleRetryScene}
             onEditRetryScene={handleEditRetryScene}
+            onCancelScene={handleCancelScene}
             onVideoModelChange={setVideoModel}
           />
 

@@ -13,6 +13,7 @@ export type ThemeCharacterPromptContext = {
   setting: string;
   locations: string;
   atmosphere: string;
+  videoStyle: string;
   rules: string;
   formal: number;
   humorous: number;
@@ -52,6 +53,7 @@ export function buildThemeCharacterImagePrompt({
     `- Setting and time period: ${compactPromptField(theme.setting, "Not specified")}`,
     `- Physical locations: ${compactPromptField(theme.locations, "Not specified")}`,
     `- Atmospheric vibe: ${compactPromptField(theme.atmosphere, "Not specified")}`,
+    `- Video style: ${compactPromptField(theme.videoStyle, "Not specified")}`,
     `- Core rules / boundaries: ${compactPromptField(theme.rules, "No strict boundaries set", 1200)}`,
     "",
     "Tone and style constraints:",
@@ -70,7 +72,7 @@ export function buildThemeCharacterImagePrompt({
     "",
     "Image generation requirements:",
     "- Produce one clear character reference image suitable for future episode character continuity.",
-    "- Make the character visually compatible with the Theme's setting, locations, atmosphere, rules, and tone.",
+    "- Make the character visually compatible with the Theme's setting, locations, atmosphere, video style, rules, and tone.",
     "- Preserve the character's role, motivations, quirks, face, body type, wardrobe cues, posture, and recognisable silhouette.",
     "- Do not introduce visual details that conflict with the Theme's world-building or banned terms.",
     "- Avoid generic stock-character styling; make the result specific enough to reuse as a character anchor.",

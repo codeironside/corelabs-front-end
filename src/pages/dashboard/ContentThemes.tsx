@@ -1,6 +1,7 @@
 import { useEffect, useState, type ElementType, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  AlertTriangle,
   Ban,
   BookOpen,
   DollarSign,
@@ -37,6 +38,7 @@ import {
   type MediaUploadResult,
 } from '@/api/content';
 import { buildThemeCharacterImagePrompt } from './content-themes/themeCharacterPrompt';
+import { MISSING_VIDEO_STYLE_MESSAGE, VIDEO_STYLE_HELPER, themeNeedsVideoStyle } from './content-themes/themeVideoStyle';
 import { ThemeCharacterTtsPreview } from './content-themes/ThemeCharacterTtsPreview';
 import { ProtectedStudioImage } from '@/pages/dashboard/content-episodes/ProtectedStudioImage';
 import { themeCharacterTtsProfile } from './content-episodes/characterTts';
@@ -87,6 +89,7 @@ type ThemeBuilderState = {
   setting: string;
   locations: string;
   atmosphere: string;
+  videoStyle: string;
   characters: ThemeCharacter[];
   rules: string;
   formal: number;
@@ -120,6 +123,7 @@ function emptyThemeBuilder(): ThemeBuilderState {
     setting: '',
     locations: '',
     atmosphere: '',
+    videoStyle: '',
     characters: [],
     rules: '',
     formal: 50,
@@ -215,6 +219,7 @@ function serializeTheme(builder: ThemeBuilderState) {
     `Setting and time period: ${builder.setting || 'Unset'}`,
     `Physical locations: ${builder.locations || 'Unset'}`,
     `Atmospheric vibe: ${builder.atmosphere || 'Unset'}`,
+    `Video style: ${builder.videoStyle || 'Unset'}`,
     '',
     'CHARACTER ROSTER',
     ...builder.characters.flatMap((character, index) => [
@@ -295,6 +300,8 @@ function themeToBuilder(theme: ContentTheme): ThemeBuilderState {
       name: snapshot.name || theme.title,
       tags: snapshot.tags?.length ? snapshot.tags : theme.defaultGenre?.split(',').map((tag) => tag.trim()).filter(Boolean) ?? [],
       attribution: snapshot.attribution || theme.authorName,
+      videoStyle: snapshot.videoStyle || theme.videoStyle || matchLine(source, /^Video style:\s*(.*)$/m).replace(/^Unset$/, ''),
+      atmosphere: snapshot.atmosphere || theme.atmosphericVibe || matchLine(source, /^Atmospheric vibe:\s*(.*)$/m).replace(/^Unset$/, ''),
     });
   }
 
@@ -307,7 +314,8 @@ function themeToBuilder(theme: ContentTheme): ThemeBuilderState {
     tags: theme.defaultGenre?.split(',').map((tag) => tag.trim()).filter(Boolean) ?? [],
     setting: matchLine(source, /^Setting and time period:\s*(.*)$/m).replace(/^Unset$/, ''),
     locations: matchLine(source, /^Physical locations:\s*(.*)$/m).replace(/^Unset$/, ''),
-    atmosphere: matchLine(source, /^Atmospheric vibe:\s*(.*)$/m).replace(/^Unset$/, ''),
+    atmosphere: matchLine(source, /^Atmospheric vibe:\s*(.*)$/m).replace(/^Unset$/, '') || theme.atmosphericVibe || '',
+    videoStyle: matchLine(source, /^Video style:\s*(.*)$/m).replace(/^Unset$/, '') || theme.videoStyle || '',
     characters,
     rules: source.match(/CORE RULES \/ BOUNDARIES\n([\s\S]*?)\n\nTONE OF VOICE AND STYLE/)?.[1]?.trim().replace(/^No strict boundaries set\.$/, '') ?? '',
     formal: Number(matchLine(source, /^Formal vs Casual:\s*(\d+)\/100 formal$/m)) || 55,
@@ -411,6 +419,11 @@ function ThemeCard({ builder, theme, onEdit }: { builder?: ThemeBuilderState; th
       </div>
       <h3 className="text-base font-semibold text-dark">{title}</h3>
       <p className="mt-2 line-clamp-4 text-xs leading-relaxed text-muted">{pitch}</p>
+      {theme && themeNeedsVideoStyle(theme) ? (
+        <p className="mt-3 rounded-lg border border-[var(--color-faded-copper)]/50 bg-[var(--color-faded-copper)]/10 px-3 py-2 text-[11px] leading-relaxed text-[var(--color-ash-brown)]">
+          Video Style is missing. Add a rendering medium before generating more scenes.
+        </p>
+      ) : null}
       <div className="mt-4 flex flex-wrap gap-1.5">
         {tags.slice(0, 5).map((tag) => (
           <span key={tag} className="rounded-full border border-border px-2.5 py-1 text-[10px] font-medium text-muted">
@@ -478,7 +491,8 @@ export function ContentThemes({ themes }: { themes: ContentTheme[] }) {
     builder.pitch.trim() &&
     builder.setting.trim() &&
     builder.locations.trim() &&
-    builder.atmosphere.trim(),
+    builder.atmosphere.trim() &&
+    builder.videoStyle.trim(),
   );
 
   const saveThemeMut = useMutation({
@@ -487,6 +501,7 @@ export function ContentThemes({ themes }: { themes: ContentTheme[] }) {
         !builder.setting.trim() ? 'setting and time period' : '',
         !builder.locations.trim() ? 'physical locations' : '',
         !builder.atmosphere.trim() ? 'atmospheric vibe' : '',
+        !builder.videoStyle.trim() ? 'video style' : '',
       ].filter(Boolean);
       if (missingWorldFields.length) {
         throw new Error(`Complete the World-Building & Lore fields: ${missingWorldFields.join(', ')}.`);
@@ -497,6 +512,8 @@ export function ContentThemes({ themes }: { themes: ContentTheme[] }) {
         authorName: builder.attribution.trim() || 'LedgerNode Creator',
         defaultGenre: builder.tags.join(', '),
         defaultStoryPrompt: serializeTheme(builder),
+        atmosphericVibe: builder.atmosphere.trim(),
+        videoStyle: builder.videoStyle.trim(),
       };
       const theme = editingThemeId ? await updateTheme(editingThemeId, payload) : await createTheme(payload);
       const files = builder.assets.map((asset) => asset.file).filter((file): file is File => Boolean(file));
@@ -520,7 +537,7 @@ export function ContentThemes({ themes }: { themes: ContentTheme[] }) {
       if (!character) throw new Error('Character not found.');
       if (!characterImageModel) throw new Error('No image model available.');
       if (!canSaveTheme) {
-        throw new Error('Complete theme name, pitch, setting, locations, and atmosphere before generating character images.');
+        throw new Error('Complete theme name, pitch, setting, locations, atmosphere, and video style before generating character images.');
       }
       const handle = normalizeHandle(character.handle, character.name);
       const prompt = buildThemeCharacterImagePrompt({
@@ -724,7 +741,13 @@ export function ContentThemes({ themes }: { themes: ContentTheme[] }) {
           </Panel>
 
           <Panel title="2. World-Building & Lore" kicker="The consistency engine for setting, characters, and unbreakable rules." icon={Globe2}>
-            <div className="grid gap-4 lg:grid-cols-3">
+            {editingThemeId && !builder.videoStyle.trim() ? (
+              <div className="mb-4 flex items-start gap-3 rounded-xl border border-[var(--color-faded-copper)]/50 bg-[var(--color-faded-copper)]/10 p-3">
+                <AlertTriangle size={16} className="mt-0.5 shrink-0 text-[var(--color-faded-copper)]" />
+                <p className="text-xs leading-relaxed text-[var(--color-ash-brown)]">{MISSING_VIDEO_STYLE_MESSAGE}</p>
+              </div>
+            ) : null}
+            <div className="grid gap-4 lg:grid-cols-2">
               <div>
                 <label className="text-xs font-medium text-muted">Setting and Time Period <span className="text-[var(--color-faded-copper)]">*</span></label>
                 <textarea
@@ -743,7 +766,7 @@ export function ContentThemes({ themes }: { themes: ContentTheme[] }) {
                   placeholder="Example: government offices, Lagos streets, homes, press rooms, campaign venues."
                 />
               </div>
-              <div>
+              <div className="lg:col-span-2">
                 <label className="text-xs font-medium text-muted">Atmospheric Vibe <span className="text-[var(--color-faded-copper)]">*</span></label>
                 <textarea
                   className="input-field mt-1 min-h-[120px] text-sm"
@@ -751,6 +774,17 @@ export function ContentThemes({ themes }: { themes: ContentTheme[] }) {
                   onChange={(e) => setBuilder((current) => ({ ...current, atmosphere: e.target.value }))}
                   placeholder="Example: optimistic, grounded, story-driven, visually warm, documentary-inspired."
                 />
+                <p className="mt-1 text-[11px] leading-relaxed text-muted">Mood, lighting, tone, and pacing — not the rendering medium.</p>
+              </div>
+              <div className="lg:col-span-2">
+                <label className="text-xs font-medium text-muted">Video Style <span className="text-[var(--color-faded-copper)]">*</span></label>
+                <textarea
+                  className="input-field mt-1 min-h-[120px] text-sm"
+                  value={builder.videoStyle}
+                  onChange={(e) => setBuilder((current) => ({ ...current, videoStyle: e.target.value }))}
+                  placeholder="Example: stylized 2D animation, photorealistic live-action look, anime-influenced, stop-motion, painterly."
+                />
+                <p className="mt-1 text-[11px] leading-relaxed text-muted">{VIDEO_STYLE_HELPER}</p>
               </div>
             </div>
             <div className="mt-5 space-y-3">

@@ -295,7 +295,47 @@ body {
   background-color: rgba(255, 255, 255, 0.12);
 }
 
-.studio-workspace section.rounded-xl,
+/* Video editor columns must be opaque — glass bg-white is why panel text bleeds through. */
+.studio-workspace .studio-video-editor {
+  --color-vanilla-cream: #ffffff;
+}
+
+.studio-workspace .studio-video-editor,
+.studio-workspace .studio-video-editor.bg-white,
+.studio-workspace .studio-video-editor .bg-white,
+.studio-workspace .studio-video-editor .sticky.bg-white {
+  background-color: #0c0c0c !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none;
+}
+
+.studio-workspace .studio-video-editor .rounded-xl.border,
+.studio-workspace .studio-video-editor .rounded-lg.border,
+.studio-workspace .studio-video-editor .bg-white\/90,
+.studio-workspace .studio-video-editor .bg-white\/95,
+.studio-workspace .studio-video-editor .bg-white\/85,
+.studio-workspace .studio-video-editor .bg-white\/70,
+.studio-workspace .studio-video-editor .bg-white\/55 {
+  background-color: #141414 !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.studio-workspace .studio-video-editor .border-dashed {
+  background-color: #141414 !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.studio-workspace section.studio-video-editor.rounded-xl,
+.studio-workspace .studio-video-editor.rounded-xl.border-border {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background-color: #0c0c0c !important;
+}
+
+.studio-workspace section.rounded-xl:not(.studio-video-editor),
 .studio-workspace article.rounded-xl,
 .studio-workspace aside.rounded-xl,
 .studio-workspace header.rounded-xl {

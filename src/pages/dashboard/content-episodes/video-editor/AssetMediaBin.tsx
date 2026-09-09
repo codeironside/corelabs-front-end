@@ -26,6 +26,7 @@ export function AssetMediaBin({
   onApproveScene,
   onRetryScene,
   onEditRetryScene,
+  onCancelScene,
   approvalBusy = false,
 }: {
   selectedModule?: ContentModule;
@@ -38,6 +39,7 @@ export function AssetMediaBin({
   onApproveScene?: (scene: EpisodeSceneCard) => void;
   onRetryScene?: (scene: EpisodeSceneCard) => void;
   onEditRetryScene?: (scene: EpisodeSceneCard, editedBeat: string) => void;
+  onCancelScene?: (scene: EpisodeSceneCard) => void;
   approvalBusy?: boolean;
 }) {
   const [assetTab, setAssetTab] = useState<EditorAssetTab>('video');
@@ -47,24 +49,25 @@ export function AssetMediaBin({
   }));
 
   return (
-    <aside className="border-b border-border p-4 xl:border-b-0 xl:border-r">
-      <div className="flex gap-1 overflow-x-auto xl:grid xl:grid-cols-1">
+    <aside className="min-w-0 overflow-hidden p-4">
+      <div className="flex flex-wrap gap-1">
         {assetTabs.map((tab) => (
           <button
             key={tab.id}
             type="button"
             onClick={() => setAssetTab(tab.id)}
-            className={`whitespace-nowrap rounded-lg px-3 py-2 text-left text-xs font-semibold ${assetTab === tab.id ? 'bg-[var(--color-muted-olive)] text-[var(--color-vanilla-cream)]' : 'text-dark hover:bg-[var(--color-tea-green)]/30'}`}
+            className={`min-w-0 rounded-lg px-3 py-2 text-left text-xs font-semibold leading-snug ${assetTab === tab.id ? 'bg-[var(--color-muted-olive)] text-[var(--color-vanilla-cream)]' : 'text-dark hover:bg-[var(--color-tea-green)]/30'}`}
           >
             {tab.label}
           </button>
         ))}
       </div>
 
-      <div className="mt-4 min-h-[360px] space-y-3">
+      <div className="mt-4 space-y-3">
         {assetTab === 'cast' && (
-          <>
-            {themeCharacterRefs.length > 0 ? themeCharacterRefs.map((reference) => (
+          themeCharacterRefs.length > 0 ? (
+            <div className="studio-video-editor-scenes">
+              {themeCharacterRefs.map((reference) => (
               <button key={reference.id} type="button" className="w-full overflow-hidden rounded-lg border border-border bg-white text-left hover:border-[var(--color-muted-olive)]">
                 <div className="aspect-video bg-[var(--color-tea-green)]/25">
                   <ProtectedStudioImage
@@ -78,12 +81,13 @@ export function AssetMediaBin({
                   <p className="truncate text-[11px] text-muted">{reference.label}</p>
                 </div>
               </button>
-            )) : <p className="text-xs leading-relaxed text-muted">No generated character references are available in the active theme.</p>}
-          </>
+              ))}
+            </div>
+          ) : <p className="text-xs leading-relaxed text-muted">No generated character references are available in the active theme.</p>
         )}
 
         {assetTab === 'video' && (
-          <>
+          <div className="studio-video-editor-scenes">
             {generatedClips.map(({ scene, segment }) => {
               const clipUrl = resolveSceneClipVideoUrl(scene, segment);
               const cardStatus = scene.catalogStatus ?? segment?.status ?? scene.sceneVideoStatus;
@@ -121,16 +125,17 @@ export function AssetMediaBin({
                       onApprove={onApproveScene}
                       onRetry={onRetryScene}
                       onEditRetry={onEditRetryScene}
+                      onCancel={onCancelScene}
                     />
                   </div>
                 ) : null}
               </div>
             );})}
-          </>
+          </div>
         )}
 
         {assetTab === 'audio' && (
-          <>
+          <div className="studio-video-editor-scenes">
             {scenes.map((scene) => (
               <button key={scene.id} type="button" onClick={() => onSelectScene(scene.id)} className="w-full rounded-lg border border-border bg-white p-3 text-left hover:border-[var(--color-muted-olive)]">
                 <div className="flex items-center justify-between gap-3">
@@ -142,14 +147,14 @@ export function AssetMediaBin({
               </button>
             ))}
             {assets.length > 0 && (
-              <div className="rounded-lg border border-[var(--color-tea-green)] p-3">
+              <div className="rounded-lg border border-[var(--color-tea-green)] p-3 sm:col-span-2 lg:col-span-3">
                 <p className="text-xs font-semibold text-dark">Uploaded episode assets</p>
                 <div className="mt-2 space-y-1">
                   {assets.map((asset) => <p key={asset.id} className="truncate text-[11px] text-muted">{asset.name}</p>)}
                 </div>
               </div>
             )}
-          </>
+          </div>
         )}
 
         {assetTab === 'brand' && (

@@ -29,6 +29,10 @@ export function estimatedSpokenSeconds(script: string): number {
   return Math.max(10, Math.round((words / SPOKEN_WORDS_PER_MINUTE) * 60));
 }
 
+export function episodeNeedsNarrationTts(soundEnabled?: boolean | null): boolean {
+  return soundEnabled !== true;
+}
+
 /** Same heuristic as the backend: runtime or spoken estimate > 10m, or script over the single-call ceiling. */
 export function needsChapterSplit(script: string, runtimeTargetSeconds: number): boolean {
   return Math.max(estimatedSpokenSeconds(script), runtimeTargetSeconds) > CHAPTER_CHUNK_THRESHOLD_SEC

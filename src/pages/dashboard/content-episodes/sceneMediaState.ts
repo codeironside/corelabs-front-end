@@ -108,21 +108,32 @@ function sceneVideoStatusFromDoc(
 export function mergeSceneMediaFromDoc(
   scene: EpisodeSceneCard,
   sceneDoc: ContentEpisodeScene,
+  catalogEpisodeId?: string,
 ): EpisodeSceneCard {
   const videoUrl = sceneDoc.cloudinaryUrl || sceneDoc.videoUrl || sceneDoc.s3Url;
   const ttsLines = ttsLinesFromDoc(sceneDoc);
   const readyLine = ttsLines?.find((line) => line.audioUrl);
+  const docIsCatalog = !catalogEpisodeId || String(sceneDoc.episodeId) === String(catalogEpisodeId);
+
+  if (!docIsCatalog) {
+    return {
+      ...scene,
+      ...(videoUrl ? { sceneVideoUrl: videoUrl } : {}),
+      sceneVideoTakeId: sceneDoc.episodeId,
+    };
+  }
 
   return {
     ...scene,
     sceneVideoStatus: sceneVideoStatusFromDoc(sceneDoc.status),
     ...(videoUrl ? { sceneVideoUrl: videoUrl } : {}),
-    sceneVideoTakeId: sceneDoc.episodeId,
+    sceneVideoTakeId: scene.sceneVideoTakeId ?? sceneDoc.episodeId,
     episodeSceneDocId: sceneDoc._id,
     catalogStatus: sceneDoc.status,
     approved: sceneDoc.status === 'approved',
     generationStartedAt: sceneDoc.generationStartedAt,
     updatedAt: sceneDoc.updatedAt,
+    ...(sceneDoc.lastFrameUrl ? { lastFrameUrl: sceneDoc.lastFrameUrl } : {}),
     ...(ttsLines
       ? {
           ttsLines,
@@ -134,6 +145,20 @@ export function mergeSceneMediaFromDoc(
     ...(sceneDoc.voiceProfile ? { voiceProfile: sceneDoc.voiceProfile } : {}),
     ...(sceneDoc.audioSegmentUrl ? { audioSegmentUrl: sceneDoc.audioSegmentUrl } : {}),
   };
+}
+
+export function catalogSceneActionId(
+  scene: Pick<EpisodeSceneCard, 'id' | 'sceneNumber' | 'episodeSceneDocId'>,
+  catalogEpisodeId?: string,
+  catalogScenes: Array<Pick<ContentEpisodeScene, '_id' | 'episodeId' | 'sceneNumber'>> = [],
+): string {
+  if (catalogEpisodeId) {
+    const match = catalogScenes.find(
+      (doc) => String(doc.episodeId) === String(catalogEpisodeId) && doc.sceneNumber === scene.sceneNumber,
+    );
+    if (match) return match._id;
+  }
+  return scene.episodeSceneDocId ?? scene.id;
 }
 
 export function episodeSceneCardFromDoc(scene: ContentEpisodeScene): EpisodeSceneCard {
@@ -161,6 +186,7 @@ export function episodeSceneCardFromDoc(scene: ContentEpisodeScene): EpisodeScen
     sceneVideoUrl: videoUrl,
     sceneVideoTakeId: scene.episodeId,
     episodeSceneDocId: scene._id,
+    lastFrameUrl: scene.lastFrameUrl,
     chapterIndex: scene.chapterIndex ?? 0,
     chapterTitle: scene.chapterLabel || (typeof scene.chapterIndex === 'number' ? `Chapter ${scene.chapterIndex + 1}` : undefined),
     generationStartedAt: scene.generationStartedAt,

@@ -1,4 +1,4 @@
-﻿import { Loader2, Plus, Trash2, Volume2 } from 'lucide-react';
+import { Loader2, Plus, Trash2, Volume2 } from 'lucide-react';
 import { Select } from '@/components/Select';
 import { ProtectedStudioAudio } from './ProtectedStudioAudio';
 import type { EpisodeSceneCard, ThemeCharacterMention } from './storyboard';
@@ -20,6 +20,7 @@ export function SceneDialogueTtsPanel({
   narratorVoice,
   narratorTone,
   audioModel,
+  nativeVideoAudio = false,
   onUpdateLine,
   onAddLine,
   onRemoveLine,
@@ -31,6 +32,7 @@ export function SceneDialogueTtsPanel({
   narratorVoice: string;
   narratorTone: EpisodeTtsTone;
   audioModel?: string;
+  nativeVideoAudio?: boolean;
   onUpdateLine: (lineId: string, patch: Partial<EpisodeSceneTtsLine>) => void;
   onAddLine: () => void;
   onRemoveLine: (lineId: string) => void;
@@ -48,7 +50,9 @@ export function SceneDialogueTtsPanel({
         <div>
           <p className="text-xs font-semibold text-dark">Dialogue &amp; narration (TTS)</p>
           <p className="mt-0.5 text-[11px] leading-relaxed text-muted">
-            Choose who speaks each line. Voice and tone come from that character&apos;s theme preset ΓÇö separate from visual character references used for video below.
+            {nativeVideoAudio
+              ? 'This scene uses native video audio, so TTS is skipped. Turn off Clip audio to generate a separate voice-over.'
+              : 'Choose who speaks each line. Voice and tone come from that character\'s theme preset — separate from visual character references used for video below.'}
           </p>
         </div>
         <button
@@ -65,7 +69,7 @@ export function SceneDialogueTtsPanel({
         {lines.map((line, index) => {
           const resolved = resolveLineTtsFromSpeaker(line.speaker, characterProfiles, narratorVoice, narratorTone);
           const tone = resolveTtsLineTone(line, narratorTone, characterProfiles);
-          const canGenerate = Boolean(audioModel && line.text.trim());
+          const canGenerate = !nativeVideoAudio && Boolean(audioModel && line.text.trim());
           const speakerLabel = line.speaker?.trim() || 'Narrator';
           return (
             <div key={line.id} className="rounded-xl border border-[var(--color-tea-green)]/60 bg-[var(--color-vanilla-cream)]/35 p-3">
