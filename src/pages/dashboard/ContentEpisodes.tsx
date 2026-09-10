@@ -831,7 +831,7 @@ export function ContentEpisodes() {
           setActiveEpisode(result.episode);
         }
         updateScene(variables.scene.id, {
-          sceneVideoStatus: result.status === 'ready' || result.status === 'pending_approval' ? result.status : 'generating',
+          sceneVideoStatus: result.status === 'ready' ? 'ready' : 'generating',
           sceneVideoTakeId: result.episodeId ?? result.takeId,
         });
       }
