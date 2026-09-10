@@ -81,9 +81,19 @@ export function SceneApprovalActions({
 
   if (status === 'approved') {
     return (
-      <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-[var(--color-muted-olive)]">
-        <CheckCircle2 size={13} /> Approved
-      </span>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-[var(--color-muted-olive)]">
+          <CheckCircle2 size={13} /> Approved
+        </span>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => onRetry(scene)}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-[11px] font-semibold text-dark disabled:opacity-45"
+        >
+          <RefreshCcw size={12} /> Retry
+        </button>
+      </div>
     );
   }
 

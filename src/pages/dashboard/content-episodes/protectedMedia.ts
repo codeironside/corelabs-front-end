@@ -23,14 +23,6 @@ export function directStudioMediaUrl(originUrl: string | undefined): string | un
   return normalizeOriginUrl(originUrl.trim());
 }
 
-const videoBlobCache = new Map<string, StreamTokenCacheEntry>();
-
-function revokeCachedBlob(entry: StreamTokenCacheEntry | undefined) {
-  if (entry?.streamUrl.startsWith('blob:')) {
-    URL.revokeObjectURL(entry.streamUrl);
-  }
-}
-
 async function issueProtectedStreamUrl(normalized: string): Promise<string> {
   const cached = streamTokenCache.get(normalized);
   if (cached && cached.expiresAt > Date.now() + 30_000) {
@@ -98,30 +90,8 @@ export async function resolveProtectedVideoPlaybackUrl(originUrl: string | undef
   const direct = directStudioMediaUrl(originUrl);
   if (!direct) return undefined;
 
-  const cached = videoBlobCache.get(direct);
-  if (cached && cached.expiresAt > Date.now() + 30_000) {
-    return cached.streamUrl;
-  }
-
   try {
-    const streamUrl = await issueProtectedStreamUrl(direct);
-    const response = await fetch(streamUrl);
-    if (!response.ok) throw new Error('Protected video stream failed');
-
-    const mimeType = response.headers.get('content-type') ?? 'video/mp4';
-    if (!mimeType.toLowerCase().startsWith('video/') && !mimeType.toLowerCase().includes('octet-stream')) {
-      throw new Error(`Protected video stream returned ${mimeType}`);
-    }
-
-    const buffer = await response.arrayBuffer();
-    const blob = new Blob([buffer], { type: mimeType.split(';')[0]?.trim() || 'video/mp4' });
-    const objectUrl = URL.createObjectURL(blob);
-    revokeCachedBlob(cached);
-    videoBlobCache.set(direct, {
-      streamUrl: objectUrl,
-      expiresAt: Date.now() + 4 * 60 * 1000,
-    });
-    return objectUrl;
+    return await issueProtectedStreamUrl(direct);
   } catch {
     return undefined;
   }

@@ -42,7 +42,7 @@ import {
 } from './content-episodes/episodeGeneration';
 import { episodeNeedsNarrationTts } from './content-episodes/episodePipeline';
 import { playEpisodeAudio } from './content-episodes/episodeAudioPlayback';
-import { catalogSceneActionId, episodeSceneCardFromDoc, mergeSceneMediaFromDoc, restoreSelectedCharacterRefIds, sceneCatalogStatusLabel, sceneDocEpisodeKey, shouldApplySceneDocToCard } from './content-episodes/sceneMediaState';
+import { catalogSceneActionId, episodeSceneCardFromDoc, mergeCommittedSceneFromQuery, restoreSelectedCharacterRefIds, sceneCatalogStatusLabel, sceneDocEpisodeKey, sceneErrorForDisplay, shouldApplySceneDocToCard } from './content-episodes/sceneMediaState';
 import { SceneApprovalActions } from './content-episodes/SceneApprovalActions';
 import { approvalProgress, isSceneGenerationStuck, stitchBlockedMessage, unapprovedSceneCount } from './content-episodes/sceneApproval';
 import { ProtectedStudioVideo } from './content-episodes/ProtectedStudioVideo';
@@ -160,15 +160,16 @@ function isRequestAborted(error: unknown) {
 }
 
 function apiErrorMessage(error: unknown, fallback: string) {
+  let message = fallback;
   if (
     typeof error === 'object'
     && error !== null
     && 'response' in error
     && typeof (error as { response?: { data?: { message?: unknown } } }).response?.data?.message === 'string'
   ) {
-    return (error as { response: { data: { message: string } } }).response.data.message;
+    message = (error as { response: { data: { message: string } } }).response.data.message;
   }
-  return fallback;
+  return sceneErrorForDisplay(message) ?? fallback;
 }
 
 function publishPlatformLabel(platform: PublishPlatform) {
@@ -473,10 +474,27 @@ export function ContentEpisodes() {
       current.map((scene) => {
         const sceneDoc = sceneDocs.find((item) => shouldApplySceneDocToCard(scene, item, pollEpisodeId));
         if (!sceneDoc) return scene;
-        return mergeSceneMediaFromDoc(scene, sceneDoc, catalogEpisodeId);
+        return mergeCommittedSceneFromQuery(scene, sceneDoc, catalogEpisodeId);
       }),
     );
   }, []);
+  const writeCatalogSceneQueryCache = useCallback((sceneDocs: ContentEpisodeScene[]) => {
+    const episodeId = activeEpisodeIdRef.current;
+    if (!episodeId || sceneDocs.length === 0) return;
+    queryClient.setQueryData<ContentEpisodeScene[]>(
+      ['content', 'episodes', episodeId, 'scenes'],
+      (current) => {
+        if (!current?.length) return sceneDocs;
+        const byId = new Map(sceneDocs.map((doc) => [doc._id, doc]));
+        const byNumber = new Map(
+          sceneDocs
+            .filter((doc) => String(doc.episodeId) === String(episodeId))
+            .map((doc) => [doc.sceneNumber, doc]),
+        );
+        return current.map((doc) => byId.get(doc._id) ?? byNumber.get(doc.sceneNumber) ?? doc);
+      },
+    );
+  }, [queryClient]);
   function catalogIdFor(scene: EpisodeSceneCard) {
     return catalogSceneActionId(
       scene,
@@ -813,7 +831,7 @@ export function ContentEpisodes() {
           setActiveEpisode(result.episode);
         }
         updateScene(variables.scene.id, {
-          sceneVideoStatus: result.status === 'ready' ? 'ready' : 'generating',
+          sceneVideoStatus: result.status === 'ready' || result.status === 'pending_approval' ? result.status : 'generating',
           sceneVideoTakeId: result.episodeId ?? result.takeId,
         });
       }
@@ -844,7 +862,10 @@ export function ContentEpisodes() {
     mutationFn: () => startSequentialEpisodeGeneration(activeEpisode?._id as string, { model: videoModel || undefined }, nextSceneGenerationSignal()),
     onSuccess: (result) => {
       if (result.episode) setActiveEpisode(result.episode);
-      if (result.scene) syncSceneVideoDocs([result.scene]);
+      if (result.scene) {
+        syncSceneVideoDocs([result.scene]);
+        writeCatalogSceneQueryCache([result.scene]);
+      }
       void queryClient.invalidateQueries({ queryKey: ['content', 'episodes', activeEpisode?._id, 'scenes'] });
       if (result.status === 'pending_approval') {
         toast('Approve the rendered scene before generating the next clip.');
@@ -867,7 +888,9 @@ export function ContentEpisodes() {
       approveEpisodeScene(activeEpisode?._id as string, catalogIdFor(scene), { model: videoModel || undefined }),
     onSuccess: (result) => {
       setActiveEpisode(result.episode);
-      syncSceneVideoDocs([result.scene, ...(result.nextScene ? [result.nextScene] : [])]);
+      const sceneDocs = [result.scene, ...(result.nextScene ? [result.nextScene] : [])];
+      syncSceneVideoDocs(sceneDocs);
+      writeCatalogSceneQueryCache(sceneDocs);
       void queryClient.invalidateQueries({ queryKey: ['content', 'episodes', activeEpisode?._id, 'scenes'] });
       toast.success(result.startedNext
         ? 'Scene approved. Next clip generation started.'
@@ -889,12 +912,29 @@ export function ContentEpisodes() {
     },
     onMutate: (variables) => {
       updateScene(variables.scene.id, { sceneVideoStatus: 'generating', catalogStatus: 'generating' });
+      const episodeId = activeEpisodeIdRef.current;
+      if (!episodeId) return;
+      queryClient.setQueryData<ContentEpisodeScene[]>(
+        ['content', 'episodes', episodeId, 'scenes'],
+        (current) => (current ?? []).map((doc) => (
+          doc._id === variables.scene.episodeSceneDocId || doc.sceneNumber === variables.scene.sceneNumber
+            ? { ...doc, status: 'generating' as const, error: undefined }
+            : doc
+        )),
+      );
     },
     onSuccess: (result) => {
       if (result.episode) setActiveEpisode(result.episode);
-      if (result.scene) syncSceneVideoDocs([result.scene]);
+      if (result.scene) {
+        syncSceneVideoDocs([result.scene]);
+        writeCatalogSceneQueryCache([result.scene]);
+      }
       void queryClient.invalidateQueries({ queryKey: ['content', 'episodes', activeEpisode?._id, 'scenes'] });
-      toast.success('Scene regeneration started.');
+      toast.success(
+        result.status === 'pending_approval' || result.status === 'ready'
+          ? 'Scene clip is ready for approval.'
+          : 'Scene regeneration started.',
+      );
     },
     onError: (error: unknown) => {
       if (isRequestAborted(error)) return;
@@ -1381,7 +1421,15 @@ export function ContentEpisodes() {
     const docs = committedScenesQuery.data;
     if (!docs?.length) return;
     setActiveEpisodeScenes(docs);
-    setScenes(docs.map((scene) => episodeSceneCardFromDoc(scene)));
+    const catalogEpisodeId = activeEpisodeIdRef.current;
+    setScenes((current) => {
+      const byNumber = new Map(current.map((scene) => [scene.sceneNumber, scene]));
+      return docs.map((sceneDoc) => mergeCommittedSceneFromQuery(
+        byNumber.get(sceneDoc.sceneNumber),
+        sceneDoc,
+        catalogEpisodeId,
+      ));
+    });
     setSelectedCharacterRefIds(restoreSelectedCharacterRefIds(docs, themeCharacterRefs));
   }, [committedScenesQuery.data]);
   const imageMentionOptions = useMemo(() => {
@@ -3292,6 +3340,7 @@ export function ContentEpisodes() {
                       segment.sceneNumber === scene.sceneNumber
                       && (!scene.sceneVideoTakeId || segment.episodeId === scene.sceneVideoTakeId)
                     ));
+                    const sceneError = sceneErrorForDisplay(linkedSceneDoc?.error, Boolean(sceneVideoUrl));
                     const sceneBusy = improveSceneMut.isPending || (generateSceneVideoMut.isPending && generateSceneVideoMut.variables?.scene.id === scene.id) || scene.ttsStatus === 'generating';
                     return (
                     <div key={scene.id} className={`rounded-xl border p-4 ${scene.catalogStatus === 'approved' ? 'border-[var(--color-muted-olive)] bg-[var(--color-tea-green)]/10' : 'border-border bg-white'}`}>
@@ -3427,14 +3476,14 @@ export function ContentEpisodes() {
                             <p className="text-xs font-semibold text-dark">Scene Video</p>
                             <span className="text-[10px] font-semibold capitalize text-[var(--color-ash-brown)]">{sceneCatalogStatusLabel(scene.catalogStatus) || sceneVideoStatus}</span>
                           </div>
-                          {sceneVideoUrl && sceneVideoStatus !== 'generating' ? (
+                          {sceneVideoUrl ? (
                             <ProtectedStudioVideo key={`${scene.id}-${sceneVideoUrl}`} originUrl={sceneVideoUrl} posterUrl={scene.lastFrameUrl} className="aspect-video w-full" videoClassName="rounded-lg" />
                           ) : (
                             <div className="flex aspect-video items-center justify-center rounded-lg bg-[var(--color-ash-brown)] text-[var(--color-vanilla-cream)]">
                               {sceneVideoStatus === 'generating' || scene.catalogStatus === 'generating' || scene.catalogStatus === 'queued' ? <Loader2 size={24} className="animate-spin" /> : <MonitorPlay size={24} />}
                             </div>
                           )}
-                          {linkedSceneDoc?.error && <p className="mt-2 text-xs leading-relaxed text-red-600">{linkedSceneDoc.error}</p>}
+                          {sceneError ? <p className="mt-2 text-xs leading-relaxed text-red-600">{sceneError}</p> : null}
                           <div className="mt-3">
                             <SceneApprovalActions
                               scene={scene}

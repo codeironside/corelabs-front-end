@@ -56,6 +56,27 @@ export function restoreSelectedCharacterRefIds(
   return [...new Set([...fromStored, ...fromHandles])];
 }
 
+export function sceneErrorForDisplay(error?: string, playable = false): string | undefined {
+  if (!error?.trim() || playable) return undefined;
+  if (
+    /bucket does not exist/i.test(error)
+    || /firebase storage/i.test(error)
+    || /blaze billing/i.test(error)
+    || /appspot\.com/i.test(error)
+    || /console\.firebase/i.test(error)
+    || /service account/i.test(error)
+  ) {
+    return 'Could not save this clip. Retry this scene.';
+  }
+  return error;
+}
+
+export function isPlayableSceneCard(scene: Pick<EpisodeSceneCard, 'catalogStatus' | 'sceneVideoStatus' | 'sceneVideoUrl'>): boolean {
+  if (!scene.sceneVideoUrl) return false;
+  const status = scene.catalogStatus ?? scene.sceneVideoStatus;
+  return status === 'pending_approval' || status === 'ready' || status === 'approved';
+}
+
 export function sceneCatalogStatusLabel(status?: ContentEpisodeScene['status'] | EpisodeSceneCard['catalogStatus']): string {
   if (!status || status === 'unrendered') return 'Unrendered';
   if (status === 'pending_approval') return 'Pending approval';
@@ -116,10 +137,20 @@ export function mergeSceneMediaFromDoc(
   const docIsCatalog = !catalogEpisodeId || String(sceneDoc.episodeId) === String(catalogEpisodeId);
 
   if (!docIsCatalog) {
+    const takeReady = sceneDoc.status === 'ready'
+      || sceneDoc.status === 'pending_approval'
+      || sceneDoc.status === 'approved';
+    const catalogStillBusy = scene.catalogStatus === 'generating' || scene.catalogStatus === 'queued';
     return {
       ...scene,
       ...(videoUrl ? { sceneVideoUrl: videoUrl } : {}),
       sceneVideoTakeId: sceneDoc.episodeId,
+      ...(takeReady && videoUrl && catalogStillBusy
+        ? {
+            sceneVideoStatus: 'pending_approval' as const,
+            catalogStatus: 'pending_approval' as const,
+          }
+        : {}),
     };
   }
 
@@ -145,6 +176,24 @@ export function mergeSceneMediaFromDoc(
     ...(sceneDoc.voiceProfile ? { voiceProfile: sceneDoc.voiceProfile } : {}),
     ...(sceneDoc.audioSegmentUrl ? { audioSegmentUrl: sceneDoc.audioSegmentUrl } : {}),
   };
+}
+
+export function mergeCommittedSceneFromQuery(
+  existing: EpisodeSceneCard | undefined,
+  sceneDoc: ContentEpisodeScene,
+  catalogEpisodeId?: string,
+): EpisodeSceneCard {
+  const next = existing
+    ? mergeSceneMediaFromDoc(existing, sceneDoc, catalogEpisodeId)
+    : episodeSceneCardFromDoc(sceneDoc);
+  if (
+    existing
+    && isPlayableSceneCard(existing)
+    && (next.catalogStatus === 'generating' || next.catalogStatus === 'queued')
+  ) {
+    return existing;
+  }
+  return next;
 }
 
 export function catalogSceneActionId(

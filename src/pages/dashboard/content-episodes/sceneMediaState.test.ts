@@ -1,6 +1,6 @@
 ﻿import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mergeSceneMediaFromDoc, shouldApplySceneDocToCard } from './sceneMediaState.ts';
+import { mergeCommittedSceneFromQuery, mergeSceneMediaFromDoc, sceneErrorForDisplay, shouldApplySceneDocToCard } from './sceneMediaState.ts';
 import type { EpisodeSceneCard } from './storyboard.ts';
 
 const baseScene: EpisodeSceneCard = {
@@ -73,6 +73,33 @@ test('mergeSceneMediaFromDoc keeps scene-specific video and tts urls', () => {
   assert.equal(merged.episodeSceneDocId, 'doc-2');
 });
 
+test('mergeSceneMediaFromDoc surfaces a finished take while the catalog scene is still generating', () => {
+  const catalogCard: EpisodeSceneCard = {
+    ...baseScene,
+    episodeSceneDocId: 'catalog-scene-2',
+    catalogStatus: 'generating',
+    sceneVideoStatus: 'generating',
+  };
+  const merged = mergeSceneMediaFromDoc(catalogCard, {
+    _id: 'take-scene-2',
+    episodeId: 'take-episode',
+    moduleId: 'module-1',
+    sceneNumber: 2,
+    startSec: 10,
+    endSec: 20,
+    voiceOver: '',
+    visualPrompt: '',
+    characterHandles: [],
+    status: 'ready',
+    cloudinaryUrl: 'https://res.cloudinary.com/demo/video/upload/scene-2.mp4',
+  }, 'catalog-episode');
+
+  assert.equal(merged.episodeSceneDocId, 'catalog-scene-2');
+  assert.equal(merged.sceneVideoUrl, 'https://res.cloudinary.com/demo/video/upload/scene-2.mp4');
+  assert.equal(merged.catalogStatus, 'pending_approval');
+  assert.equal(merged.sceneVideoStatus, 'pending_approval');
+});
+
 test('mergeSceneMediaFromDoc does not replace a catalog scene id with a take scene id', () => {
   const catalogCard: EpisodeSceneCard = {
     ...baseScene,
@@ -140,4 +167,37 @@ test('mergeSceneMediaFromDoc keeps narration audioSegmentUrl distinct from dialo
   assert.equal(merged.audioSegmentUrl, 'https://cdn.example/narration-slice.mp3');
   assert.equal(merged.ttsAudioUrl?.includes('dialogue.mp3'), true);
   assert.notEqual(merged.audioSegmentUrl, merged.ttsAudioUrl);
+});
+
+test('sceneErrorForDisplay hides storage infra errors when a clip is already playable', () => {
+  const raw = 'Storage bucket does not exist (ajeoba-54fca.appspot.com). Open https://console.firebase.google.com/project/ajeoba-54fca/storage and click Get started (Blaze billing required), then retry.';
+  assert.equal(sceneErrorForDisplay(raw, true), undefined);
+  assert.equal(sceneErrorForDisplay(raw, false), 'Could not save this clip. Retry this scene.');
+});
+
+test('mergeCommittedSceneFromQuery does not replace a playable clip with stale generating', () => {
+  const playable: EpisodeSceneCard = {
+    ...baseScene,
+    sceneVideoUrl: 'https://res.cloudinary.com/demo/video/upload/scene-2.mp4',
+    sceneVideoStatus: 'pending_approval',
+    catalogStatus: 'pending_approval',
+    episodeSceneDocId: 'catalog-scene-2',
+  };
+  const merged = mergeCommittedSceneFromQuery(playable, {
+    _id: 'catalog-scene-2',
+    episodeId: 'episode-b',
+    moduleId: 'module-1',
+    sceneNumber: 2,
+    startSec: 10,
+    endSec: 20,
+    voiceOver: '',
+    visualPrompt: '',
+    characterHandles: [],
+    status: 'generating',
+    error: 'Storage bucket does not exist (ajeoba-54fca.appspot.com). Open https://console.firebase.google.com/project/ajeoba-54fca/storage and click Get started (Blaze billing required), then retry.',
+  }, 'episode-b');
+
+  assert.equal(merged.catalogStatus, 'pending_approval');
+  assert.equal(merged.sceneVideoStatus, 'pending_approval');
+  assert.equal(merged.sceneVideoUrl, 'https://res.cloudinary.com/demo/video/upload/scene-2.mp4');
 });
