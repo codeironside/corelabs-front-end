@@ -23,7 +23,10 @@ export type SceneApprovalRecord = {
 };
 
 function statusOf(scene: SceneApprovalRecord): SceneApprovalStatus {
-  return scene.catalogStatus ?? scene.status ?? "unrendered";
+  const raw = scene.catalogStatus ?? scene.status ?? "unrendered";
+  // Rendered clips stuck on legacy "ready" still need an explicit Approve click.
+  if (raw === "ready") return "pending_approval";
+  return raw;
 }
 
 export function sceneOrderOf(scene: Pick<SceneApprovalRecord, "order" | "sceneNumber">): number {

@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState, type MouseEvent } from 'react';
+import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import { toGatewayUrl } from '@/config/apiUrl';
 import apiClient from '@/lib/axios';
 import { studioStreamMediaUrl } from './studioMediaUrl';
@@ -9,6 +9,7 @@ type StreamTokenCacheEntry = {
 };
 
 const streamTokenCache = new Map<string, StreamTokenCacheEntry>();
+const TOKEN_REFRESH_MARGIN_MS = 30_000;
 
 function normalizeOriginUrl(originUrl: string): string {
   return studioStreamMediaUrl(originUrl) ?? originUrl;
@@ -25,7 +26,7 @@ export function directStudioMediaUrl(originUrl: string | undefined): string | un
 
 async function issueProtectedStreamUrl(normalized: string): Promise<string> {
   const cached = streamTokenCache.get(normalized);
-  if (cached && cached.expiresAt > Date.now() + 30_000) {
+  if (cached && cached.expiresAt > Date.now() + TOKEN_REFRESH_MARGIN_MS) {
     return cached.streamUrl;
   }
 
@@ -40,6 +41,14 @@ async function issueProtectedStreamUrl(normalized: string): Promise<string> {
     expiresAt: data.data.expiresAt,
   });
   return streamUrl;
+}
+
+function invalidateStreamToken(originUrl: string): void {
+  streamTokenCache.delete(normalizeOriginUrl(originUrl));
+}
+
+function msUntilTokenRefresh(expiresAt: number): number {
+  return Math.max(1_000, expiresAt - Date.now() - TOKEN_REFRESH_MARGIN_MS);
 }
 
 function canUseDirectMediaUrl(url: string): boolean {
@@ -108,6 +117,7 @@ export function useProtectedMediaSrc(originUrl: string | undefined): {
 
   useEffect(() => {
     let cancelled = false;
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 
     if (!originUrl?.trim()) {
       setSrc(undefined);
@@ -116,27 +126,39 @@ export function useProtectedMediaSrc(originUrl: string | undefined): {
       return;
     }
 
-    setLoading(true);
-    setError(false);
-
-    void resolveProtectedMediaUrl(originUrl)
-      .then((nextSrc) => {
+    const load = async (force = false) => {
+      if (force) invalidateStreamToken(originUrl);
+      if (!force) {
+        setLoading(true);
+        setError(false);
+      }
+      try {
+        const nextSrc = await resolveProtectedMediaUrl(originUrl);
         if (cancelled) return;
         setSrc(nextSrc);
         setLoading(false);
         setError(!nextSrc);
-      })
-      .catch(() => {
+        const cached = streamTokenCache.get(normalizeOriginUrl(originUrl.trim()));
+        if (cached) {
+          if (refreshTimer) clearTimeout(refreshTimer);
+          refreshTimer = setTimeout(() => {
+            void load(true);
+          }, msUntilTokenRefresh(cached.expiresAt));
+        }
+      } catch {
         if (cancelled) return;
         const fallback = directStudioMediaUrl(originUrl);
         const usable = fallback && canUseDirectMediaUrl(fallback) ? fallback : undefined;
         setSrc(usable);
         setLoading(false);
         setError(!usable);
-      });
+      }
+    };
 
+    void load();
     return () => {
       cancelled = true;
+      if (refreshTimer) clearTimeout(refreshTimer);
     };
   }, [originUrl]);
 
@@ -154,6 +176,7 @@ export function useProtectedVideoSrc(originUrl: string | undefined): {
 
   useEffect(() => {
     let cancelled = false;
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 
     if (!originUrl?.trim()) {
       setSrc(undefined);
@@ -162,25 +185,37 @@ export function useProtectedVideoSrc(originUrl: string | undefined): {
       return;
     }
 
-    setLoading(true);
-    setError(false);
-
-    void resolveProtectedVideoPlaybackUrl(originUrl)
-      .then((nextSrc) => {
+    const load = async (force = false) => {
+      if (force) invalidateStreamToken(originUrl);
+      if (!force) {
+        setLoading(true);
+        setError(false);
+      }
+      try {
+        const nextSrc = await resolveProtectedVideoPlaybackUrl(originUrl);
         if (cancelled) return;
         setSrc(nextSrc);
         setLoading(false);
         setError(!nextSrc);
-      })
-      .catch(() => {
+        const cached = streamTokenCache.get(normalizeOriginUrl(originUrl.trim()));
+        if (cached) {
+          if (refreshTimer) clearTimeout(refreshTimer);
+          refreshTimer = setTimeout(() => {
+            void load(true);
+          }, msUntilTokenRefresh(cached.expiresAt));
+        }
+      } catch {
         if (cancelled) return;
         setSrc(undefined);
         setLoading(false);
         setError(true);
-      });
+      }
+    };
 
+    void load();
     return () => {
       cancelled = true;
+      if (refreshTimer) clearTimeout(refreshTimer);
     };
   }, [originUrl]);
 
@@ -199,6 +234,7 @@ export function useProtectedAudioSrc(originUrl: string | undefined): {
 
   useEffect(() => {
     let cancelled = false;
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 
     if (!originUrl?.trim()) {
       setSrc(undefined);
@@ -207,27 +243,43 @@ export function useProtectedAudioSrc(originUrl: string | undefined): {
       return;
     }
 
-    setLoading(true);
-    setError(false);
-
-    void resolveProtectedAudioPlaybackUrl(originUrl)
-      .then((nextSrc) => {
+    const load = async (force = false) => {
+      if (force) invalidateStreamToken(originUrl);
+      if (!force) {
+        setLoading(true);
+        setError(false);
+      }
+      try {
+        const nextSrc = await resolveProtectedAudioPlaybackUrl(originUrl);
         if (cancelled) return;
+        if (blobUrlRef.current && blobUrlRef.current !== nextSrc) {
+          URL.revokeObjectURL(blobUrlRef.current);
+          blobUrlRef.current = undefined;
+        }
         if (nextSrc?.startsWith('blob:')) blobUrlRef.current = nextSrc;
         setSrc(nextSrc);
         setLoading(false);
         setError(!nextSrc);
-      })
-      .catch(() => {
+        const cached = streamTokenCache.get(normalizeOriginUrl(originUrl.trim()));
+        if (cached) {
+          if (refreshTimer) clearTimeout(refreshTimer);
+          refreshTimer = setTimeout(() => {
+            void load(true);
+          }, msUntilTokenRefresh(cached.expiresAt));
+        }
+      } catch {
         if (cancelled) return;
         const fallback = directStudioMediaUrl(originUrl);
         setSrc(fallback);
         setLoading(false);
         setError(!fallback);
-      });
+      }
+    };
 
+    void load();
     return () => {
       cancelled = true;
+      if (refreshTimer) clearTimeout(refreshTimer);
       if (blobUrlRef.current) {
         URL.revokeObjectURL(blobUrlRef.current);
         blobUrlRef.current = undefined;

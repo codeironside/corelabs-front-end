@@ -27,3 +27,9 @@ export function normalizeStudioRole(role: string): StudioRole {
 export function canAccessStudioWorkspace(role: string): boolean {
   return STUDIO_WORKSPACE_ROLES.has(normalizeStudioRole(role));
 }
+
+/** Admins can download fully stitched episode masters; preview stays protected for editors. */
+export function canDownloadStitchedEpisode(role: string | undefined): boolean {
+  const normalized = normalizeStudioRole(role ?? '');
+  return normalized === 'admin' || normalized === 'super_admin';
+}

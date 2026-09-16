@@ -61,7 +61,7 @@ export function StudioPipelinePanel(): React.JSX.Element {
   const [episodeKey] = useState(() => createEpisodeWorkspaceKey());
   const [script, setScript] = useState('');
   const [beats, setBeats] = useState<SceneBeat[]>([]);
-  const [videoModel, setVideoModel] = useState('openai:sora-2');
+  const videoModel = 'modal:ltx-2.5';
 
   const pipelineQuery = useQuery({
     queryKey: ['content', 'pipeline', moduleId, episodeKey],
@@ -234,17 +234,24 @@ export function StudioPipelinePanel(): React.JSX.Element {
               <p className="mt-1 text-sm font-medium text-[var(--color-faded-copper)]">{progressLabel}</p>
             </div>
             <label className="text-xs font-semibold text-[var(--color-dark)]/70">
-              Model
+              Studio video
+              <span className="ml-2 rounded border border-[var(--color-muted-olive)] bg-[var(--color-vanilla-cream)] px-2 py-1 font-medium text-[var(--color-dark)]">
+                LTX 2.5 I2V
+              </span>
+              {/* Idle commercial pickers
               <select
                 className="ml-2 rounded border border-[var(--color-border)] bg-[var(--color-vanilla-cream)] px-2 py-1"
                 value={videoModel}
                 onChange={(event) => setVideoModel(event.target.value)}
               >
+                <option value="modal:ltx-2.5">LTX 2.5 I2V</option>
+                <option value="comfy:ltx-2.5">Comfy LTX 2.5</option>
                 <option value="openai:sora-2">OpenAI Sora 2</option>
                 <option value="openai:sora-2-pro">OpenAI Sora 2 Pro</option>
                 <option value="google:veo-3.1">Google Veo 3.1</option>
                 <option value="xai:grok-imagine-video">Grok Imagine Video</option>
               </select>
+              */}
             </label>
           </div>
 

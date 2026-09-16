@@ -88,7 +88,7 @@ export interface ContentModule {
   coverVideoUrl?: string;
   publishedPlatforms?: Array<"youtube" | "tiktok" | "instagram">;
   publishedAt?: string;
-  videoProvider?: "kling" | "openai" | "veo" | "xai";
+  videoProvider?: "kling" | "openai" | "veo" | "xai" | "comfy" | "modal";
   openaiVideoId?: string;
   openaiVideoModel?: "sora-2" | "sora-2-pro";
   veoOperationJson?: string;
@@ -121,7 +121,7 @@ export interface ContentEpisode {
   basePrompt: string;
   outputMode: "text" | "media";
   generationModel: string;
-  videoProvider?: "kling" | "openai" | "veo" | "xai";
+  videoProvider?: "kling" | "openai" | "veo" | "xai" | "comfy" | "modal";
   durationSeconds: number;
   runtimeTargetSeconds?: number;
   soundEnabled: boolean;
@@ -186,7 +186,7 @@ export interface ContentEpisodeScene {
   characterHandles: string[];
   charactersPresent?: string[];
   referenceAssets?: Array<{ name: string; tag?: string; url?: string; s3Url?: string; s3Key?: string; publicId?: string; characterHandle?: string }>;
-  provider?: "kling" | "openai" | "veo" | "xai";
+  provider?: "kling" | "openai" | "veo" | "xai" | "comfy" | "modal";
   status:
     | "unrendered"
     | "generating"
@@ -269,7 +269,7 @@ export interface SocialPost {
 export interface AiModelOption {
   value: string;
   label: string;
-  provider: "openai" | "anthropic" | "google" | "xai" | "kling" | "elevenlabs" | "studio";
+  provider: "openai" | "anthropic" | "google" | "xai" | "kling" | "elevenlabs" | "studio" | "comfy" | "modal";
   providerLabel: string;
 }
 
@@ -672,46 +672,59 @@ export interface EpisodeTimelineRenderResult {
   videoUrl: string;
 }
 
-export const renderEpisodeTimeline = async (payload: {
-  moduleId: string;
-  episodeId?: string;
-  title: string;
-  basePrompt?: string;
-  durationSeconds: number;
-  soundEnabled?: boolean;
-  thumbnailLabel?: string;
-  thumbnailUrl?: string;
-  scenes: Array<{
-    sceneNumber: number;
-    startSec: number;
-    endSec: number;
-    videoUrl: string;
-    transition?: "cut" | "dissolve" | "wipe" | "fade-black" | "slide-left" | "zoom";
-    transitionDuration?: number;
-    sourceAudioMuted?: boolean;
-    voiceOver?: string;
-    visualPrompt?: string;
-    characterHandles?: string[];
-  }>;
-  audioLayers?: Array<{
-    id?: string;
-    kind?: "tts" | "upload" | "mic" | "music" | "sfx";
-    label?: string;
-    url: string;
-    startSec: number;
-    endSec: number;
-    volume: number;
-    muted?: boolean;
-  }>;
-}): Promise<EpisodeTimelineRenderResult> => {
+export const renderEpisodeTimeline = async (
+  payload: {
+    moduleId: string;
+    episodeId?: string;
+    title: string;
+    basePrompt?: string;
+    durationSeconds: number;
+    soundEnabled?: boolean;
+    thumbnailLabel?: string;
+    thumbnailUrl?: string;
+    scenes: Array<{
+      sceneNumber: number;
+      startSec: number;
+      endSec: number;
+      videoUrl: string;
+      transition?: "cut" | "dissolve" | "wipe" | "fade-black" | "slide-left" | "zoom";
+      transitionDuration?: number;
+      sourceAudioMuted?: boolean;
+      voiceOver?: string;
+      visualPrompt?: string;
+      characterHandles?: string[];
+    }>;
+    audioLayers?: Array<{
+      id?: string;
+      kind?: "tts" | "upload" | "mic" | "music" | "sfx";
+      label?: string;
+      url: string;
+      startSec: number;
+      endSec: number;
+      volume: number;
+      muted?: boolean;
+    }>;
+  },
+  options?: { signal?: AbortSignal },
+): Promise<EpisodeTimelineRenderResult> => {
   const { data } = await apiClient.post<ApiResponse<EpisodeTimelineRenderResult>>(
     "/content/episodes/timeline/render",
     payload,
     {
       timeout: 900_000,
+      signal: options?.signal,
     },
   );
   return data.data;
+};
+
+export const cancelEpisodeTimelineStitch = async (
+  episodeId: string,
+): Promise<ContentEpisode> => {
+  const { data } = await apiClient.post<ApiResponse<{ episode: ContentEpisode }>>(
+    `/content/episodes/${episodeId}/timeline/cancel`,
+  );
+  return data.data.episode;
 };
 
 export function isCatalogEpisode(episode: Pick<ContentEpisode, "sceneOnly" | "sourceEpisodeId">): boolean {
@@ -990,6 +1003,55 @@ export const cancelEpisodeSceneGeneration = async (
     }>
   >(`/content/episodes/${episodeId}/scenes/${sceneId}/cancel-generation`);
   return data.data;
+};
+
+function filenameFromContentDisposition(header: string | undefined): string {
+  if (!header) return 'episode-master.mp4';
+  const utf = /filename\*=UTF-8''([^;]+)/i.exec(header);
+  if (utf?.[1]) {
+    try {
+      return decodeURIComponent(utf[1]);
+    } catch {
+      return utf[1];
+    }
+  }
+  const ascii = /filename="?([^";]+)"?/i.exec(header);
+  return ascii?.[1]?.trim() || 'episode-master.mp4';
+}
+
+export const downloadEpisodeMaster = async (episodeId: string): Promise<void> => {
+  try {
+    const response = await apiClient.get<Blob>(`/content/episodes/${episodeId}/master-download`, {
+      responseType: 'blob',
+      timeout: 600_000,
+    });
+    const blob = response.data;
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = filenameFromContentDisposition(response.headers['content-disposition']);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(objectUrl);
+  } catch (error) {
+    const data = (error as { response?: { data?: unknown } }).response?.data;
+    if (data instanceof Blob) {
+      try {
+        const parsed = JSON.parse(await data.text()) as { message?: string };
+        if (typeof parsed.message === "string" && parsed.message.trim()) {
+          throw new Error(parsed.message);
+        }
+      } catch (parsedError) {
+        if (parsedError instanceof SyntaxError) {
+          // Fall through to the original axios error.
+        } else {
+          throw parsedError;
+        }
+      }
+    }
+    throw error;
+  }
 };
 
 export const createContentEpisodeScene = async (

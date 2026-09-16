@@ -84,7 +84,8 @@ export function sceneCatalogStatusLabel(status?: ContentEpisodeScene['status'] |
   if (status === 'rejected') return 'Rejected';
   if (status === 'generating') return 'Generating';
   if (status === 'queued') return 'Queued';
-  if (status === 'ready') return 'Ready';
+  // "Ready" meant rendered-but-not-approved; don't imply the stitch gate is cleared.
+  if (status === 'ready') return 'Pending approval';
   return 'Failed';
 }
 

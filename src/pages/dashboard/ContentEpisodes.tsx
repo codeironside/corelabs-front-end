@@ -10,6 +10,7 @@ import {
   ArrowUp,
   CheckCircle2,
   Clock3,
+  Download,
   FileCheck2,
   FileText,
   Film,
@@ -26,6 +27,7 @@ import {
   Route,
   Save,
   Sparkles,
+  Square,
   Timer,
   Trash2,
   UploadCloud,
@@ -110,6 +112,8 @@ import {
   approveEpisodeScene,
   regenerateEpisodeScene,
   cancelEpisodeSceneGeneration,
+  cancelEpisodeTimelineStitch,
+  downloadEpisodeMaster,
   listContentEpisodes,
   isCatalogEpisode,
   listReusableAudioAssets,
@@ -136,6 +140,8 @@ import {
 } from '@/api/content';
 import { Select, type SelectOption } from '@/components/Select';
 import { ConfirmModal } from '@/components/ConfirmModal';
+import { canDownloadStitchedEpisode } from '@/config/roles';
+import { useAuthStore } from '@/store/authStore';
 import toast from 'react-hot-toast';
 import type { TimelineAudioLayer, TimelineBrollLayer, TimelineRenderOptions, TransitionKind } from './content-episodes/video-editor/types';
 import { assignDedicatedLane } from './content-episodes/video-editor/audioLaneLayout';
@@ -349,6 +355,8 @@ function modelLabel(value: string, models: AvailableAiModels) {
 export function ContentEpisodes() {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
+  const studioRole = useAuthStore((state) => state.user?.role);
+  const canDownloadMaster = canDownloadStitchedEpisode(studioRole);
   const draftHydratedRef = useRef<string | null>(null);
   const pendingModuleIdRef = useRef<string | null>(null);
   const pendingEpisodeIdRef = useRef<string | null>(null);
@@ -356,6 +364,7 @@ export function ContentEpisodes() {
   const restoringEpisodeIdRef = useRef<string>('');
   const narrationTrackInputRef = useRef<HTMLInputElement>(null);
   const sceneGenerationAbortRef = useRef<AbortController | null>(null);
+  const timelineStitchAbortRef = useRef<AbortController | null>(null);
 
   function abortSceneGenerationRequest() {
     sceneGenerationAbortRef.current?.abort();
@@ -626,7 +635,18 @@ export function ContentEpisodes() {
   });
 
   const renderTimelineMut = useMutation({
-    mutationFn: renderEpisodeTimelineRequest,
+    mutationFn: async (payload: Parameters<typeof renderEpisodeTimelineRequest>[0]) => {
+      timelineStitchAbortRef.current?.abort();
+      const controller = new AbortController();
+      timelineStitchAbortRef.current = controller;
+      try {
+        return await renderEpisodeTimelineRequest(payload, { signal: controller.signal });
+      } finally {
+        if (timelineStitchAbortRef.current === controller) {
+          timelineStitchAbortRef.current = null;
+        }
+      }
+    },
     onSuccess: (result) => {
       setActiveEpisode(result.episode);
       setActiveEpisodeScenes(result.scenes);
@@ -648,7 +668,39 @@ export function ContentEpisodes() {
     },
     onError: (error: unknown) => {
       setReviewState('idle');
+      const message = apiErrorMessage(error, '').toLowerCase();
+      if (
+        (typeof error === 'object' && error !== null && 'code' in error && (error as { code?: string }).code === 'ERR_CANCELED')
+        || message.includes('stitching stopped')
+        || message.includes('canceled')
+        || message.includes('cancelled')
+      ) {
+        toast.success('Stitching stopped. You can render the timeline again.');
+        return;
+      }
       toast.error(apiErrorMessage(error, 'Could not stitch the timeline.'));
+    },
+  });
+
+  const cancelTimelineStitchMut = useMutation({
+    mutationFn: async () => {
+      timelineStitchAbortRef.current?.abort();
+      timelineStitchAbortRef.current = null;
+      const episodeId = activeEpisode?._id;
+      if (!episodeId) return null;
+      return cancelEpisodeTimelineStitch(episodeId);
+    },
+    onSuccess: (episode) => {
+      if (episode) setActiveEpisode(episode);
+      setReviewState('idle');
+      renderTimelineMut.reset();
+      queryClient.invalidateQueries({ queryKey: ['content', 'episodes'] });
+      toast.success('Stitching stopped. Click Render Timeline MP4 to restart.');
+    },
+    onError: (error: unknown) => {
+      setReviewState('idle');
+      renderTimelineMut.reset();
+      toast.error(apiErrorMessage(error, 'Could not stop stitching.'));
     },
   });
 
@@ -969,6 +1021,12 @@ export function ContentEpisodes() {
       toast.error(apiErrorMessage(error, 'Could not stop this scene.'));
       void queryClient.invalidateQueries({ queryKey: ['content', 'episodes', activeEpisode?._id, 'scenes'] });
     },
+  });
+
+  const downloadMasterMut = useMutation({
+    mutationFn: (episodeId: string) => downloadEpisodeMaster(episodeId),
+    onSuccess: () => toast.success('Stitched episode download started.'),
+    onError: (error: unknown) => toast.error(apiErrorMessage(error, 'Could not download the stitched episode.')),
   });
 
   const saveEpisodeDraftMut = useMutation({
@@ -1395,12 +1453,11 @@ export function ContentEpisodes() {
     if (textModel !== nextText) setTextModel(nextText);
     if (imageModel !== nextImage) setImageModel(nextImage);
     if (audioModel !== nextAudio) setAudioModel(nextAudio);
-    const videoValues = aiModels.video.map((model) => model.value);
-    if (!videoValues.length) {
-      if (videoModel) setVideoModel('');
-    } else if (!videoModel || !videoValues.includes(videoModel)) {
-      setVideoModel(videoValues[0]!);
-    }
+    const kitchen = aiModels.video.find((model) => model.value === 'modal:ltx-2.5')?.value
+      ?? aiModels.video.find((model) => model.value === 'modal:wan-i2v')?.value
+      ?? aiModels.video[0]?.value
+      ?? '';
+    if (videoModel !== kitchen) setVideoModel(kitchen);
   }, [aiModels, audioModel, imageModel, textModel, videoModel]);
 
   const selectedModule = modules.find((module) => module._id === moduleId);
@@ -1543,12 +1600,30 @@ export function ContentEpisodes() {
   ));
   const allSceneVideosReady = mode !== 'media' || (scenes.length > 0 && scenes.every((scene) => {
     const hasVideo = Boolean(readySceneVideoUrls.get(scene.sceneNumber) || scene.sceneVideoUrl);
-    const approved = scene.catalogStatus ? scene.catalogStatus === 'approved' : (scene.sceneVideoStatus === 'ready');
-    return hasVideo && approved;
+    const playableStatus = scene.catalogStatus ?? scene.sceneVideoStatus;
+    const rendered = playableStatus === 'approved'
+      || playableStatus === 'pending_approval'
+      || playableStatus === 'ready'
+      || scene.sceneVideoStatus === 'ready'
+      || scene.sceneVideoStatus === 'pending_approval';
+    return hasVideo && rendered;
   }));
   const anySceneVideoGenerating = anyCatalogSceneGenerating
     || scenes.some((scene) => scene.sceneVideoStatus === 'generating' && scene.catalogStatus !== 'pending_approval')
     || editorSegments.some((segment) => segment.status === 'generating' || segment.status === 'queued');
+  const stitchInFlight = Boolean(
+    mode === 'media'
+    && (
+      reviewState === 'generating'
+      || renderTimelineMut.isPending
+      || (
+        activeEpisodeForModule?.status === 'generating'
+        && ['timeline_render', 'downloading_scenes', 'ffmpeg_concat', 'audio_mix', 'uploading_master'].includes(
+          activeEpisodeForModule?.progress?.phase ?? '',
+        )
+      )
+    ),
+  );
   const stitchGateLocked = mode === 'media' && catalogApprovalRemaining > 0;
   const scriptGateLocked = scriptWorkflow === 'script' && !scriptApproved;
   const scenesGateLocked = scriptWorkflow === 'scenes' && !scenesReadyForGeneration(scenes);
@@ -1595,6 +1670,7 @@ export function ContentEpisodes() {
     && title.trim()
     && scenes.length > 0
     && allSceneVideosReady
+    && !stitchGateLocked
     && !anySceneVideoGenerating
     && reviewState !== 'generating'
     && (scriptWorkflow !== 'scenes' || scenesReadyForGeneration(scenes)),
@@ -2833,7 +2909,7 @@ export function ContentEpisodes() {
                       <div>
                         <p className="text-sm font-semibold text-dark">Voice-Over Control Panel</p>
                         <p className="mt-1 text-xs leading-relaxed text-muted">
-                          Scene video uses the provider selected above. Set narrator voice and mood, then generate or upload the full episode track. TTS is only used when Default scene video audio is off — generated clips with native sound do not get a separate voice-over. When TTS runs, it is fitted to the target runtime and rebuilt per scene after commit so scene N+1 continues from the end of scene N.
+                          Scene video always uses self-hosted Wan I2V. Set narrator voice and mood, then generate or upload the full episode track. TTS is only used when Default scene video audio is off — generated clips with native sound do not get a separate voice-over. When TTS runs, it is fitted to the target runtime and rebuilt per scene after commit so scene N+1 continues from the end of scene N.
                         </p>
                       </div>
                       <button type="button" onClick={playVoiceSample} disabled={voiceSamplePending} className="inline-flex items-center justify-center gap-2 rounded-xl border border-[var(--color-muted-olive)] px-4 py-2 text-sm font-semibold text-[var(--color-ash-brown)] disabled:opacity-45">
@@ -3579,17 +3655,26 @@ export function ContentEpisodes() {
           <Panel title="6. Final Review & Automated Broadcasting" kicker="Inspect the stitched master asset, tweak the workspace if needed, then approve direct posting." icon={CheckCircle2}>
             <div className="grid gap-5 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
               <div className="min-h-[min(50vh,20rem)] rounded-xl border border-border bg-white p-4">
-                {reviewState === 'generating' ? (
+                {reviewState === 'generating' || stitchInFlight ? (
                   <div className="flex h-[280px] flex-col items-center justify-center text-center">
                     <Loader2 size={30} className="animate-spin text-[var(--color-ash-brown)]" />
                     <p className="mt-3 text-sm font-semibold text-dark">{mode === 'media' ? 'Stitching timeline with FFmpeg' : 'Synthesizing final output'}</p>
                     <p className="mt-1 text-xs text-muted">
                       {mode === 'media'
-                        ? scriptWorkflow === 'scenes'
-                          ? 'Compiling approved scene clips, per-scene character references, transitions, and the final episode master asset.'
-                          : 'Compiling the approved scene clips, transition gaps, and final episode master asset.'
+                        ? 'Joining every approved scene clip into one continuous episode master MP4.'
                         : `Translating the ${scriptWorkflow === 'script' ? 'approved script blueprint' : scriptWorkflow === 'scenes' ? 'approved scene cards' : 'base prompt'}, selected references, background style tuning, and episode assets with ${modelLabel(activeFinalModel, aiModels)}.`}
                     </p>
+                    {mode === 'media' && stitchInFlight ? (
+                      <button
+                        type="button"
+                        onClick={() => cancelTimelineStitchMut.mutate()}
+                        disabled={cancelTimelineStitchMut.isPending}
+                        className="mt-4 inline-flex items-center gap-2 rounded-xl border border-border px-4 py-2 text-sm font-semibold text-dark hover:border-[var(--color-faded-copper)] disabled:opacity-45"
+                      >
+                        {cancelTimelineStitchMut.isPending ? <Loader2 size={15} className="animate-spin" /> : <Square size={15} />}
+                        {cancelTimelineStitchMut.isPending ? 'Stopping...' : 'Stop stitching'}
+                      </button>
+                    ) : null}
                   </div>
                 ) : mode === 'media' ? (
                   <div className="space-y-4">
@@ -3628,17 +3713,58 @@ export function ContentEpisodes() {
               </div>
 
               <div className="space-y-3">
-                <button type="button" onClick={() => handleFinalGenerate()} disabled={(mode === 'media' ? !canRenderTimeline : !canGenerateFinal) || generateMediaMut.isPending || renderTimelineMut.isPending} className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--color-muted-olive)] px-4 py-3 text-sm font-semibold text-[var(--color-vanilla-cream)] disabled:opacity-45">
+                <button type="button" onClick={() => handleFinalGenerate()} disabled={(mode === 'media' ? !canRenderTimeline : !canGenerateFinal) || generateMediaMut.isPending || renderTimelineMut.isPending || cancelTimelineStitchMut.isPending} className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--color-muted-olive)] px-4 py-3 text-sm font-semibold text-[var(--color-vanilla-cream)] disabled:opacity-45">
                   {generateMediaMut.isPending || renderTimelineMut.isPending ? <Loader2 size={16} className="animate-spin" /> : <Play size={16} />}
-                  {generateMediaMut.isPending || renderTimelineMut.isPending ? 'Sending to backend...' : mode === 'media' ? 'Render Timeline MP4' : 'Generate Text'}
+                  {generateMediaMut.isPending || renderTimelineMut.isPending
+                    ? 'Stitching...'
+                    : mode === 'media'
+                      ? (finalVideoUrl ? 'Re-render Timeline MP4' : 'Render Timeline MP4')
+                      : 'Generate Text'}
                 </button>
+                {mode === 'media' && stitchInFlight ? (
+                  <button
+                    type="button"
+                    onClick={() => cancelTimelineStitchMut.mutate()}
+                    disabled={cancelTimelineStitchMut.isPending}
+                    className="flex w-full items-center justify-center gap-2 rounded-xl border border-[var(--color-faded-copper)] px-4 py-3 text-sm font-semibold text-dark hover:bg-[var(--color-faded-copper)]/10 disabled:opacity-45"
+                  >
+                    {cancelTimelineStitchMut.isPending ? <Loader2 size={16} className="animate-spin" /> : <Square size={16} />}
+                    {cancelTimelineStitchMut.isPending ? 'Stopping stitch...' : 'Stop stitching'}
+                  </button>
+                ) : null}
                 {generateDisabledReason && <p className="text-xs leading-relaxed text-[var(--color-faded-copper)]">{generateDisabledReason}</p>}
-                <button type="button" onClick={() => handleFinalGenerate()} disabled={!selectedModule || reviewState === 'generating' || generateMediaMut.isPending || renderTimelineMut.isPending} className="flex w-full items-center justify-center gap-2 rounded-xl border border-border px-4 py-3 text-sm font-semibold text-dark hover:border-[var(--color-muted-olive)] disabled:opacity-45">
-                  <RefreshCcw size={16} /> Regenerate
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (stitchInFlight) {
+                      cancelTimelineStitchMut.mutate(undefined, {
+                        onSuccess: () => {
+                          window.setTimeout(() => handleFinalGenerate(), 150);
+                        },
+                      });
+                      return;
+                    }
+                    handleFinalGenerate();
+                  }}
+                  disabled={!selectedModule || generateMediaMut.isPending || cancelTimelineStitchMut.isPending}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-border px-4 py-3 text-sm font-semibold text-dark hover:border-[var(--color-muted-olive)] disabled:opacity-45"
+                >
+                  <RefreshCcw size={16} /> {mode === 'media' ? 'Restart stitch' : 'Regenerate'}
                 </button>
                 <button type="button" onClick={() => setReviewState('editing')} className="flex w-full items-center justify-center gap-2 rounded-xl border border-border px-4 py-3 text-sm font-semibold text-dark hover:border-[var(--color-muted-olive)]">
                   <FileText size={16} /> Manually Tweak Workspace
                 </button>
+                {canDownloadMaster && finalVideoUrl && activeEpisodeForModule?._id ? (
+                  <button
+                    type="button"
+                    onClick={() => downloadMasterMut.mutate(activeEpisodeForModule._id)}
+                    disabled={downloadMasterMut.isPending}
+                    className="flex w-full items-center justify-center gap-2 rounded-xl border border-[var(--color-muted-olive)] px-4 py-3 text-sm font-semibold text-dark hover:bg-[var(--color-muted-olive)]/10 disabled:opacity-45"
+                  >
+                    {downloadMasterMut.isPending ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+                    {downloadMasterMut.isPending ? 'Preparing download...' : 'Download stitched episode'}
+                  </button>
+                ) : null}
                 <div className="rounded-xl border border-[var(--color-tea-green)] bg-white p-3">
                   <div className="mb-3 flex items-center justify-between gap-3">
                     <div>
