@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { PlatformEmbed } from "./PlatformEmbed";
+import { canAccessStudioWorkspace } from "@/config/roles";
+import { useAuthStore } from "@/store/authStore";
 import { episodeWatchPlatforms, type PublicEpisodePlayback, type PublicEpisodePlatform } from "./publicStories";
 
 const PLATFORM_LABEL: Record<PublicEpisodePlatform, string> = {
@@ -53,6 +55,11 @@ export function EpisodePlatformPlayers({ episode }: { episode: PublicEpisodePlay
 }
 
 export function StoryNav(): React.JSX.Element {
+  const accessToken = useAuthStore((state) => state.accessToken);
+  const user = useAuthStore((state) => state.user);
+  const destination = accessToken
+    ? (user && canAccessStudioWorkspace(user.role) ? "/app" : "/account")
+    : "/demo";
   return (
     <nav className="flex items-center justify-between gap-4 px-6 py-6 md:px-10">
       <Link to="/" className="text-sm tracking-tight text-white">
@@ -62,8 +69,8 @@ export function StoryNav(): React.JSX.Element {
         <Link to="/stories" className="text-sm text-white/70 hover:text-white">
           stories
         </Link>
-        <Link to="/login" className="rounded-full bg-white px-4 py-2 text-sm text-black">
-          start creating
+        <Link to={destination} className="rounded-full bg-white px-4 py-2 text-sm text-black">
+          {accessToken ? "open studio" : "try the studio"}
         </Link>
       </div>
     </nav>

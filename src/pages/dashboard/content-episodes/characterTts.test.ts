@@ -1,4 +1,4 @@
-﻿import assert from 'node:assert/strict';
+import assert from 'node:assert/strict';
 
 import { test } from 'node:test';
 
@@ -75,6 +75,38 @@ test('parseThemeCharacterTtsProfiles migrates legacy pitch preset slugs', () => 
   const profiles = parseThemeCharacterTtsProfiles(legacyJson, mentions.slice(0, 1), 'lagos-warm-female');
 
   assert.equal(profiles[characterHandleKey('@Shehu')]?.pitchPercent, 25);
+
+});
+
+
+
+test('parseThemeCharacterTtsProfiles keeps creator-typed custom tone and pace', () => {
+
+  const customJson = JSON.stringify({
+
+    characters: [{
+
+      handle: '@Shehu',
+
+      name: 'Shehu',
+
+      ttsTonePreset: 'gravelly storyteller',
+
+      ttsPacePreset: 'measured pause',
+
+      ttsPitchPercent: -12,
+
+    }],
+
+  });
+
+  const profiles = parseThemeCharacterTtsProfiles(customJson, mentions.slice(0, 1), 'lagos-warm-female');
+
+  assert.equal(profiles[characterHandleKey('@Shehu')]?.tonePreset, 'gravelly storyteller');
+
+  assert.equal(profiles[characterHandleKey('@Shehu')]?.pacePreset, 'measured pause');
+
+  assert.equal(profiles[characterHandleKey('@Shehu')]?.pitchPercent, -12);
 
 });
 

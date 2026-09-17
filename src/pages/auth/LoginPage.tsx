@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, Navigate, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import {
   completeGoogleSignup,
@@ -8,13 +8,13 @@ import {
   isSignupRoleRequired,
   isTokenPair,
 } from '@/api/auth';
-import { SIGNUP_ROLE_OPTIONS, type SignupRoleOption } from '@/config/roles';
 import {
   isFirebaseConfigured,
   isGooglePopupCancelled,
   signInWithGoogleIdToken,
 } from '@/config/firebase';
 import { getAuthErrorMessage } from '@/lib/authError';
+import { safeReturnTo } from '@/lib/authReturn';
 import { useAuthStore } from '@/store/authStore';
 import { AmbientVideo } from '@/components/AmbientVideo';
 
@@ -45,18 +45,18 @@ function GoogleGlyph(): React.JSX.Element {
 
 export function LoginPage(): React.JSX.Element {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const returnTo = safeReturnTo(searchParams.get('returnTo'));
   const accessToken = useAuthStore((state) => state.accessToken);
   const setTokens = useAuthStore((state) => state.setTokens);
   const setUser = useAuthStore((state) => state.setUser);
 
   const [mode, setMode] = useState<AuthMode>('login');
-  const [signupRole, setSignupRole] = useState<SignupRoleOption>('editor');
   const [rememberMe, setRememberMe] = useState(true);
   const [loading, setLoading] = useState(false);
-  const [pendingToken, setPendingToken] = useState<string | null>(null);
 
-  if (accessToken && !pendingToken) {
-    return <Navigate to="/home" replace />;
+  if (accessToken) {
+    return <Navigate to={returnTo} replace />;
   }
 
   async function enterWithTokens(access: string, refresh: string): Promise<void> {
@@ -64,7 +64,7 @@ export function LoginPage(): React.JSX.Element {
     const me = await fetchMe();
     setUser(me);
     toast.success('welcome to corelabsstudio');
-    navigate(me.role === 'user' ? '/account' : '/app', { replace: true });
+    navigate(returnTo, { replace: true });
   }
 
   async function startGoogle(): Promise<void> {
@@ -79,14 +79,16 @@ export function LoginPage(): React.JSX.Element {
       const result = await googleStudioLogin({
         idToken,
         intent: mode,
-        signupRole: mode === 'signup' ? signupRole : undefined,
         rememberMe,
       });
 
       if (isSignupRoleRequired(result)) {
-        setPendingToken(result.signupToken);
-        setMode('signup');
-        toast('new google account — choose users or editor to finish');
+        const tokens = await completeGoogleSignup({
+          signupToken: result.signupToken,
+          signupRole: 'editor',
+          rememberMe,
+        });
+        await enterWithTokens(tokens.accessToken, tokens.refreshToken);
         return;
       }
 
@@ -103,63 +105,6 @@ export function LoginPage(): React.JSX.Element {
     }
   }
 
-  async function finishPendingSignup(): Promise<void> {
-    if (!pendingToken) {
-      return;
-    }
-    setLoading(true);
-    try {
-      const tokens = await completeGoogleSignup({
-        signupToken: pendingToken,
-        signupRole,
-        rememberMe,
-      });
-      setPendingToken(null);
-      await enterWithTokens(tokens.accessToken, tokens.refreshToken);
-    } catch (error) {
-      toast.error(getAuthErrorMessage(error, 'could not finish google signup'));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  if (pendingToken) {
-    return (
-      <main className="flex min-h-full items-center justify-center bg-black px-6 py-16 text-white">
-        <div className="w-full max-w-md rounded-3xl border border-white/10 bg-neutral-950 p-8">
-          <h1 className="text-2xl font-medium tracking-tight">choose your role</h1>
-          <p className="mt-3 text-sm text-white/60">finish google signup for corelabsstudio.</p>
-          <div className="mt-6 grid grid-cols-2 gap-2">
-            {SIGNUP_ROLE_OPTIONS.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                onClick={() => setSignupRole(option.value)}
-                className={`rounded-full border px-4 py-3 text-sm transition-colors ${
-                  signupRole === option.value
-                    ? 'border-white bg-white text-black'
-                    : 'border-white/15 text-white/70 hover:border-white/40'
-                }`}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-          <button
-            type="button"
-            disabled={loading}
-            onClick={() => {
-              void finishPendingSignup();
-            }}
-            className="mt-6 w-full rounded-full bg-white px-6 py-3 text-sm text-black transition-colors hover:bg-neutral-200 disabled:opacity-60"
-          >
-            {loading ? 'creating…' : 'continue'}
-          </button>
-        </div>
-      </main>
-    );
-  }
-
   return (
     <main className="relative flex min-h-full items-center justify-center overflow-hidden bg-black px-6 py-16">
       <AmbientVideo
@@ -174,7 +119,7 @@ export function LoginPage(): React.JSX.Element {
         </Link>
         <h1 className="mt-8 text-3xl font-medium tracking-tight">start creating</h1>
         <p className="mt-3 text-sm leading-relaxed text-white/60">
-          google sign-in is handled by CoreLabsStudio. roles: users, editor, admin, and super admin.
+          Sign in with Google to save your worlds, characters, and scenes.
         </p>
 
         <div className="mt-8 flex gap-2 rounded-full bg-neutral-900 p-1">
@@ -191,31 +136,6 @@ export function LoginPage(): React.JSX.Element {
             </button>
           ))}
         </div>
-
-        {mode === 'signup' ? (
-          <div className="mt-6">
-            <p className="text-xs tracking-[0.16em] text-white/45 uppercase">account type</p>
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              {SIGNUP_ROLE_OPTIONS.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => setSignupRole(option.value)}
-                  className={`rounded-full border px-4 py-3 text-sm transition-colors ${
-                    signupRole === option.value
-                      ? 'border-white bg-white text-black'
-                      : 'border-white/15 text-white/70 hover:border-white/40 hover:text-white'
-                  }`}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-            <p className="mt-3 text-xs leading-relaxed text-white/45">
-              admin and super admin are assigned by CoreLabs — choose users or editor when signing up.
-            </p>
-          </div>
-        ) : null}
 
         <label className="mt-6 flex items-center gap-2 text-sm text-white/60">
           <input

@@ -9,6 +9,7 @@ import {
   generateNextPipelineScene,
   getModulePipeline,
   splitEpisodeChapters,
+  startSequentialEpisodeGeneration,
   type DraftSceneBeat,
   type EpisodeCharacterSelectorChoice,
   type FailedChapter,
@@ -201,10 +202,32 @@ export function EpisodePipelineFlow({
   });
 
   const generateMutation = useMutation({
-    mutationFn: () => generateNextPipelineScene(moduleId, { episodeKey, model: videoModel }),
-    onSuccess: () => {
+    mutationFn: async (): Promise<{ status: string }> => {
+      if (episodeId) {
+        const result = await startSequentialEpisodeGeneration(episodeId, { model: videoModel || undefined });
+        return { status: result.status };
+      }
+      const result = await generateNextPipelineScene(moduleId, { episodeKey, model: videoModel });
+      return { status: result.status };
+    },
+    onSuccess: (result) => {
       void queryClient.invalidateQueries({ queryKey: ['content', 'pipeline', moduleId, episodeKey] });
       void queryClient.invalidateQueries({ queryKey: ['content', 'episodes'] });
+      if (episodeId) {
+        void queryClient.invalidateQueries({ queryKey: ['content', 'episodes', episodeId, 'scenes'] });
+      }
+      if (result && typeof result === 'object' && 'status' in result) {
+        const status = (result as { status?: string }).status;
+        if (status === 'pending_approval') {
+          toast('Approve the rendered scene before generating the next clip.');
+          return;
+        }
+        if (status === 'approved') {
+          toast.success('All scenes are approved.');
+          return;
+        }
+      }
+      toast.success('Scene video generation started.');
     },
     onError: (error) => toast.error(apiErrorMessage(error, 'Scene generation failed.')),
   });
@@ -340,7 +363,7 @@ export function EpisodePipelineFlow({
 
       <VirtualizedSceneBoard beats={displayBeats} editable={draftBeats.length > 0} onChangeBeat={updateBeat} />
 
-      {queueCommitted && pipeline?.beatQueueCommitted ? (
+      {queueCommitted && episodeId ? (
         <div className="rounded-xl border border-border bg-white p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>

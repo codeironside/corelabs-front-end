@@ -164,6 +164,8 @@ export function mergeSceneMediaFromDoc(
     catalogStatus: sceneDoc.status,
     approved: sceneDoc.status === 'approved',
     generationStartedAt: sceneDoc.generationStartedAt,
+    generationStage: sceneDoc.generationStage,
+    generationPct: sceneDoc.generationPct,
     updatedAt: sceneDoc.updatedAt,
     ...(sceneDoc.lastFrameUrl ? { lastFrameUrl: sceneDoc.lastFrameUrl } : {}),
     ...(ttsLines
@@ -187,12 +189,21 @@ export function mergeCommittedSceneFromQuery(
   const next = existing
     ? mergeSceneMediaFromDoc(existing, sceneDoc, catalogEpisodeId)
     : episodeSceneCardFromDoc(sceneDoc);
+  // While regenerating, keep the prior clip only if the server has not cleared
+  // it yet. Once the catalog row has a new URL (or no URL), prefer `next`.
   if (
     existing
     && isPlayableSceneCard(existing)
     && (next.catalogStatus === 'generating' || next.catalogStatus === 'queued')
+    && !next.sceneVideoUrl
   ) {
-    return existing;
+    return {
+      ...next,
+      sceneVideoUrl: existing.sceneVideoUrl,
+      lastFrameUrl: existing.lastFrameUrl ?? next.lastFrameUrl,
+      sceneVideoStatus: 'generating',
+      catalogStatus: next.catalogStatus ?? 'generating',
+    };
   }
   return next;
 }
@@ -240,6 +251,8 @@ export function episodeSceneCardFromDoc(scene: ContentEpisodeScene): EpisodeScen
     chapterIndex: scene.chapterIndex ?? 0,
     chapterTitle: scene.chapterLabel || (typeof scene.chapterIndex === 'number' ? `Chapter ${scene.chapterIndex + 1}` : undefined),
     generationStartedAt: scene.generationStartedAt,
+    generationStage: scene.generationStage,
+    generationPct: scene.generationPct,
     updatedAt: scene.updatedAt,
   };
 }

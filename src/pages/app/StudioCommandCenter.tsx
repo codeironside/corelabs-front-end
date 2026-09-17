@@ -9,8 +9,9 @@ import {
   Sparkles,
 } from 'lucide-react';
 import type { ContentModule, ContentTheme } from '@/api/content';
+import { CommandProductionPlanner } from '@/pages/app/CommandProductionPlanner';
 
-type StudioTab = 'modules' | 'themes' | 'episodes' | 'pipeline' | 'integrations';
+type StudioTab = 'command' | 'modules' | 'themes' | 'episodes' | 'pipeline' | 'integrations';
 
 function ShellPanel({
   title,
@@ -79,6 +80,8 @@ export function StudioCommandCenter({
 
   return (
     <div className="space-y-6">
+      <CommandProductionPlanner onOpenEpisodes={() => onOpen('episodes')} />
+
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <MetricCard label="Total modules" value={modules.length} icon={Layers3} />
         <MetricCard label="Theme bibles" value={themes.length} icon={Palette} />

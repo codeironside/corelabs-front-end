@@ -69,6 +69,7 @@ type ThemeCharacter = {
   ttsToneDirection?: string;
   ttsPacePreset?: string;
   ttsPitchPercent?: number;
+  ttsPitchDescription?: string;
   ttsTestPhrase?: string;
   preview?: ThemeCharacterImage;
   gallery: ThemeCharacterImage[];
@@ -175,6 +176,7 @@ function normalizeCharacter(character: Partial<ThemeCharacter>): ThemeCharacter 
     ttsToneDirection: normalizeToneDirection(character.ttsToneDirection),
     ttsPacePreset: character.ttsPacePreset,
     ttsPitchPercent: normalizePitchPercent(character.ttsPitchPercent ?? (character as { ttsPitchPreset?: string }).ttsPitchPreset),
+    ttsPitchDescription: character.ttsPitchDescription,
     ttsTestPhrase: character.ttsTestPhrase,
     preview: character.preview,
     gallery: Array.isArray(character.gallery) ? character.gallery : [],
@@ -598,7 +600,7 @@ export function ContentThemes({ themes }: { themes: ContentTheme[] }) {
       const profile = themeCharacterTtsProfile(character, index, '');
       const text = character.ttsTestPhrase?.trim() || `Hi, I'm ${character.name.trim() || 'this character'}. This is how I sound.`;
       if (!profile.voiceProfile.trim()) {
-        throw new Error('Set a voice for this character first ΓÇö pick from the ElevenLabs or Google voice catalog.');
+        throw new Error('Describe this character\'s voice before previewing.');
       }
       return generateEpisodeTts({
         text,
@@ -853,9 +855,9 @@ export function ContentThemes({ themes }: { themes: ContentTheme[] }) {
                     </div>
 
                     <div className="space-y-3">
-                      <div className="aspect-square overflow-hidden rounded-xl border border-border bg-[var(--color-muted-olive)]">
+                      <div className="flex min-h-[320px] items-center justify-center overflow-hidden rounded-xl border border-border bg-[var(--color-muted-olive)]/40 p-2">
                         {generateCharacterImageMut.isPending && generateCharacterImageMut.variables?.characterId === character.id ? (
-                          <div className="flex h-full w-full flex-col items-center justify-center bg-[linear-gradient(135deg,#adc178,#a98467)] p-5 text-center">
+                          <div className="flex h-72 w-full flex-col items-center justify-center rounded-lg bg-[linear-gradient(135deg,#adc178,#a98467)] p-5 text-center">
                             <Loader2 size={30} className="animate-spin text-[var(--color-vanilla-cream)]" />
                             <p className="mt-3 text-xs font-semibold text-[var(--color-vanilla-cream)]">Generating character reference...</p>
                           </div>
@@ -863,10 +865,10 @@ export function ContentThemes({ themes }: { themes: ContentTheme[] }) {
                           <ProtectedStudioImage
                             originUrl={character.preview.url}
                             alt={`${character.name || 'Character'} preview`}
-                            className="h-full w-full object-cover"
+                            className="max-h-[70vh] w-full object-contain"
                           />
                         ) : (
-                          <div className="flex h-full w-full flex-col items-center justify-center bg-[linear-gradient(135deg,#adc178,#a98467)] p-5 text-center">
+                          <div className="flex h-72 w-full flex-col items-center justify-center rounded-lg bg-[linear-gradient(135deg,#adc178,#a98467)] p-5 text-center">
                             <Images size={34} className="text-[var(--color-vanilla-cream)]" />
                             <p className="mt-3 text-xs font-semibold text-[var(--color-vanilla-cream)]">Generated preview appears here.</p>
                           </div>
@@ -898,11 +900,11 @@ export function ContentThemes({ themes }: { themes: ContentTheme[] }) {
                       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
                         {character.gallery.map((image, variantIndex) => (
                           <div key={image.id} className="overflow-hidden rounded-xl border border-border bg-white">
-                            <div className="aspect-square bg-[var(--color-tea-green)]/30">
+                            <div className="flex aspect-[3/4] items-center justify-center bg-[var(--color-tea-green)]/30 p-1">
                               <ProtectedStudioImage
                                 originUrl={image.url}
                                 alt={image.label}
-                                className="h-full w-full object-cover"
+                                className="max-h-full max-w-full object-contain"
                               />
                             </div>
                             <p className="truncate px-2 py-2 text-[10px] font-semibold text-muted">Variant {variantIndex + 1}</p>

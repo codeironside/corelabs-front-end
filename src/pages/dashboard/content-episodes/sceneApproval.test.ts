@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { approvalProgress, stitchBlockedMessage, unapprovedSceneCount } from './sceneApproval.ts';
+import {
+  approvalProgress,
+  focusApprovalScene,
+  nextStartableScene,
+  stitchBlockedMessage,
+  unapprovedSceneCount,
+} from './sceneApproval.ts';
 
 test('approval progress uses live scene statuses without chapter chrome for short episodes', () => {
   const progress = approvalProgress([
@@ -16,6 +22,15 @@ test('approval progress uses live scene statuses without chapter chrome for shor
     { catalogStatus: 'unrendered' },
   ]), 2);
   assert.equal(stitchBlockedMessage(3), '3 scenes still need approval before rendering the full episode.');
+});
+
+test('after commit, scene 1 is the next startable focus', () => {
+  const scenes = [
+    { id: 'a', sceneNumber: 1, catalogStatus: 'unrendered' as const },
+    { id: 'b', sceneNumber: 2, catalogStatus: 'unrendered' as const },
+  ];
+  assert.equal(nextStartableScene(scenes)?.sceneNumber, 1);
+  assert.equal(focusApprovalScene(scenes)?.sceneNumber, 1);
 });
 
 test('approval progress includes in-chapter scene numbers once multiple chapters exist', () => {

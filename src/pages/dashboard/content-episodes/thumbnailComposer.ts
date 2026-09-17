@@ -1,4 +1,4 @@
-﻿import { resolveProtectedMediaUrl } from './protectedMedia';
+import { resolveProtectedMediaUrl } from './protectedMedia';
 
 export type ThumbnailOverlayAlign = 'left' | 'center' | 'right';
 
@@ -27,7 +27,7 @@ export async function composeEpisodeThumbnail(options: ThumbnailOverlayOptions):
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('Could not prepare thumbnail canvas.');
 
-    drawCoverImage(ctx, image, OUTPUT_WIDTH, OUTPUT_HEIGHT);
+    drawContainImage(ctx, image, OUTPUT_WIDTH, OUTPUT_HEIGHT);
     drawOverlay(ctx, options);
 
     const blob = await new Promise<Blob>((resolve, reject) => {
@@ -70,8 +70,10 @@ function loadImage(url: string): Promise<HTMLImageElement> {
   });
 }
 
-function drawCoverImage(ctx: CanvasRenderingContext2D, image: HTMLImageElement, width: number, height: number) {
-  const scale = Math.max(width / image.naturalWidth, height / image.naturalHeight);
+function drawContainImage(ctx: CanvasRenderingContext2D, image: HTMLImageElement, width: number, height: number) {
+  ctx.fillStyle = '#1a1a1a';
+  ctx.fillRect(0, 0, width, height);
+  const scale = Math.min(width / image.naturalWidth, height / image.naturalHeight);
   const scaledWidth = image.naturalWidth * scale;
   const scaledHeight = image.naturalHeight * scale;
   const x = (width - scaledWidth) / 2;

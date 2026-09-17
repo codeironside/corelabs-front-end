@@ -46,7 +46,7 @@ import { episodeNeedsNarrationTts } from './content-episodes/episodePipeline';
 import { playEpisodeAudio } from './content-episodes/episodeAudioPlayback';
 import { catalogSceneActionId, episodeSceneCardFromDoc, mergeCommittedSceneFromQuery, restoreSelectedCharacterRefIds, sceneCatalogStatusLabel, sceneDocEpisodeKey, sceneErrorForDisplay, shouldApplySceneDocToCard } from './content-episodes/sceneMediaState';
 import { SceneApprovalActions } from './content-episodes/SceneApprovalActions';
-import { approvalProgress, isSceneGenerationStuck, stitchBlockedMessage, unapprovedSceneCount } from './content-episodes/sceneApproval';
+import { approvalProgress, isSceneGenerationStuck, nextStartableScene, stitchBlockedMessage, unapprovedSceneCount } from './content-episodes/sceneApproval';
 import { ProtectedStudioVideo } from './content-episodes/ProtectedStudioVideo';
 import { ProtectedStudioImage } from './content-episodes/ProtectedStudioImage';
 import { ProtectedStudioAudio } from './content-episodes/ProtectedStudioAudio';
@@ -145,6 +145,7 @@ import { useAuthStore } from '@/store/authStore';
 import toast from 'react-hot-toast';
 import type { TimelineAudioLayer, TimelineBrollLayer, TimelineRenderOptions, TransitionKind } from './content-episodes/video-editor/types';
 import { assignDedicatedLane } from './content-episodes/video-editor/audioLaneLayout';
+import { EpisodePreviewShare } from './content-episodes/EpisodePreviewShare';
 
 type GenerationMode = 'text' | 'media';
 type IntroSource = 'upload' | 'ai';
@@ -233,7 +234,7 @@ const FONT_OPTIONS: SelectOption<string>[] = [
   { value: 'Arial', label: 'Arial' },
 ];
 
-const TARGET_DURATION_OPTIONS = [60, 300, 600, 1800, 3600, 7200];
+const TARGET_DURATION_OPTIONS = [20, 60, 300, 600, 1800, 3600, 7200];
 const MAX_EPISODE_DURATION_SEC = 7200;
 
 const PLATFORM_TAGS = [
@@ -365,6 +366,14 @@ export function ContentEpisodes() {
   const narrationTrackInputRef = useRef<HTMLInputElement>(null);
   const sceneGenerationAbortRef = useRef<AbortController | null>(null);
   const timelineStitchAbortRef = useRef<AbortController | null>(null);
+  /** When true, keep a blank canvas — do not re-bind moduleEpisodes[0] or URL episodeId after "New episode". */
+  const blankEpisodeWorkspaceRef = useRef(false);
+  const [blankEpisodeWorkspace, setBlankEpisodeWorkspace] = useState(false);
+
+  function setBlankEpisodeWorkspaceIntent(enabled: boolean) {
+    blankEpisodeWorkspaceRef.current = enabled;
+    setBlankEpisodeWorkspace(enabled);
+  }
 
   function abortSceneGenerationRequest() {
     sceneGenerationAbortRef.current?.abort();
@@ -408,7 +417,7 @@ export function ContentEpisodes() {
   const [title, setTitle] = useState('');
   const [basePrompt, setBasePrompt] = useState('');
   const [mode, setMode] = useState<GenerationMode>('media');
-  const [duration, setDuration] = useState(30);
+  const [duration, setDuration] = useState(20);
   const [reAnchorIntervalScenes, setReAnchorIntervalScenes] = useState(15);
   const [extendedCut, setExtendedCut] = useState(false);
   const [episodeAudioFinalized, setEpisodeAudioFinalized] = useState(false);
@@ -523,7 +532,13 @@ export function ContentEpisodes() {
       return;
     }
     if (result.episode && !result.episode.sceneOnly) {
-      setActiveEpisode(result.episode);
+      // Do not steal a blank "new episode" canvas back onto a polled catalog episode.
+      if (
+        !blankEpisodeWorkspaceRef.current
+        || sameCatalogId(activeEpisodeIdRef.current, result.episode._id)
+      ) {
+        setActiveEpisode(result.episode);
+      }
     }
     if (result.scenes) {
       const scopedScenes = result.scenes.filter((scene) => scene.moduleId === moduleId);
@@ -545,7 +560,11 @@ export function ContentEpisodes() {
   const { data: latestSavedEpisodeDetail } = useQuery({
     queryKey: ['content', 'episodes', latestSavedEpisode?._id, 'detail'],
     queryFn: () => getContentEpisode(latestSavedEpisode!._id),
-    enabled: Boolean(latestSavedEpisode?._id && activeEpisode?._id !== latestSavedEpisode._id),
+    enabled: Boolean(
+      latestSavedEpisode?._id
+      && activeEpisode?._id !== latestSavedEpisode._id
+      && !blankEpisodeWorkspace,
+    ),
   });
 
   const generateImageMut = useMutation({
@@ -1107,6 +1126,7 @@ export function ContentEpisodes() {
     onSuccess: (episode, payload) => {
       const episodeId = episodeCatalogId(episode._id);
       activeEpisodeIdRef.current = episodeId;
+      setBlankEpisodeWorkspaceIntent(false);
       setActiveEpisode(episode);
       if (episodeId) setEpisodeWorkspaceKey(episodeId);
       setSearchParams((current) => {
@@ -1139,12 +1159,18 @@ export function ContentEpisodes() {
   const loadSavedEpisodeMut = useMutation({
     mutationFn: (episodeId: string) => getContentEpisode(episodeId),
     onSuccess: ({ episode, scenes: episodeScenes }) => {
+      // Ignore stale restores that raced with "New episode for this module".
+      if (blankEpisodeWorkspaceRef.current) {
+        restoringEpisodeIdRef.current = '';
+        return;
+      }
       if (!sameCatalogId(episode.moduleId, moduleId)) {
         toast.error('That episode belongs to a different module.');
         return;
       }
       const episodeId = episodeCatalogId(episode._id);
       activeEpisodeIdRef.current = episodeId;
+      setBlankEpisodeWorkspaceIntent(false);
       setEpisodeWorkspaceKey(episodeId || episode._id);
       setActiveEpisode(episode);
       setActiveEpisodeScenes(episodeScenes);
@@ -1263,7 +1289,9 @@ export function ContentEpisodes() {
     setFinalDraft('');
   }
 
-  function startFreshEpisodeWorkspace(options?: { keepEpisodeIdInUrl?: boolean }) {
+  function startFreshEpisodeWorkspace(options?: { keepEpisodeIdInUrl?: boolean; allowAutoBindLatest?: boolean }) {
+    const allowAutoBind = Boolean(options?.allowAutoBindLatest);
+    setBlankEpisodeWorkspaceIntent(!allowAutoBind);
     clearActiveEpisodeRenderState();
     activeEpisodeIdRef.current = '';
     pendingEpisodeIdRef.current = null;
@@ -1300,7 +1328,8 @@ export function ContentEpisodes() {
     if (nextModuleId === moduleId) return;
     draftHydratedRef.current = null;
     setModuleId(nextModuleId);
-    startFreshEpisodeWorkspace();
+    // Allow restoring the latest episode after a module switch; "New episode" blocks that.
+    startFreshEpisodeWorkspace({ allowAutoBindLatest: true });
     const next = new URLSearchParams(searchParams);
     if (nextModuleId) next.set('moduleId', nextModuleId);
     else next.delete('moduleId');
@@ -1326,7 +1355,8 @@ export function ContentEpisodes() {
     if (!moduleId) return;
     if (draftHydratedRef.current === moduleId) return;
     // New module selected before its draft arrives — wipe foreign canvas immediately.
-    startFreshEpisodeWorkspace({ keepEpisodeIdInUrl: true });
+    // Still allow binding the module's latest episode once the canvas is empty.
+    startFreshEpisodeWorkspace({ keepEpisodeIdInUrl: true, allowAutoBindLatest: true });
   }, [moduleId]);
 
   useEffect(() => {
@@ -1398,6 +1428,7 @@ export function ContentEpisodes() {
 
   useEffect(() => {
     if (!moduleId) return;
+    if (blankEpisodeWorkspace || blankEpisodeWorkspaceRef.current) return;
     const restoreId = searchParams.get('episodeId') || pendingEpisodeIdRef.current;
     if (!restoreId) return;
     if (sameCatalogId(activeEpisode?._id, restoreId) || activeEpisodeIdRef.current === restoreId) return;
@@ -1405,7 +1436,7 @@ export function ContentEpisodes() {
     pendingEpisodeIdRef.current = null;
     restoringEpisodeIdRef.current = restoreId;
     loadSavedEpisodeMut.mutate(restoreId);
-  }, [activeEpisode?._id, episodeDraft, loadSavedEpisodeMut, moduleId, searchParams]);
+  }, [activeEpisode?._id, blankEpisodeWorkspace, episodeDraft, loadSavedEpisodeMut, moduleId, searchParams]);
 
   useEffect(() => {
     if (modules.length === 0) return;
@@ -1591,6 +1622,7 @@ export function ContentEpisodes() {
       || committedSceneCards.length > 0),
   );
   const sceneApprovalProgress = approvalProgress(scenes);
+  const nextStartableCatalogScene = nextStartableScene(scenes);
   const catalogApprovalRemaining = unapprovedSceneCount(scenes);
   const allCatalogScenesApproved = scenes.length > 0 && catalogApprovalRemaining === 0;
   const pendingCatalogApproval = scenes.some((scene) => scene.catalogStatus === 'pending_approval');
@@ -1763,6 +1795,7 @@ export function ContentEpisodes() {
   }, [themeCharacterRefs]);
 
   useEffect(() => {
+    if (blankEpisodeWorkspace || blankEpisodeWorkspaceRef.current) return;
     if (!latestSavedEpisodeDetail?.episode) return;
     if (!sameCatalogId(latestSavedEpisodeDetail.episode.moduleId, moduleId)) return;
     if (sameCatalogId(activeEpisode?._id, latestSavedEpisodeDetail.episode._id)) return;
@@ -1788,7 +1821,7 @@ export function ContentEpisodes() {
       );
       setReviewState('ready');
     }
-  }, [activeEpisode?._id, basePrompt, latestSavedEpisodeDetail, moduleId, scenes.length, title]);
+  }, [activeEpisode?._id, basePrompt, blankEpisodeWorkspace, latestSavedEpisodeDetail, moduleId, scenes.length, title]);
 
   function addEpisodeAssets(files: FileList | null) {
     if (!files?.length) return;
@@ -2242,7 +2275,7 @@ export function ContentEpisodes() {
     const selectedSceneRefs = sceneCharacterReferenceAssets(scene);
     generateSceneVideoMut.mutate({
       moduleId: selectedModule._id,
-      episodeId: activeEpisode?._id ?? latestSavedEpisode?._id,
+      episodeId: activeEpisode?._id ?? (blankEpisodeWorkspace ? undefined : latestSavedEpisode?._id),
       title: title.trim(),
       basePrompt: generationContext.basePrompt,
       model: videoModel,
@@ -2332,7 +2365,7 @@ export function ContentEpisodes() {
       const editedUrl = uploaded.cloudinaryUrl || uploaded.s3Url;
       if (!editedUrl) throw new Error('Edited thumbnail upload did not return a URL.');
       saveThumbnailMut.mutate({
-        episodeId: activeEpisode?._id ?? latestSavedEpisode?._id,
+        episodeId: activeEpisode?._id ?? (blankEpisodeWorkspace ? undefined : latestSavedEpisode?._id),
         moduleId,
         title: title.trim() || 'Untitled episode',
         basePrompt: basePrompt.trim() || title.trim() || 'Episode thumbnail draft',
@@ -2539,6 +2572,23 @@ export function ContentEpisodes() {
     handleFinalGenerate(options);
   }
 
+  function handleStartNextSceneGeneration(scene?: EpisodeSceneCard) {
+    if (!activeEpisode?._id) {
+      toast.error('Commit the scene queue before generating clips.');
+      return;
+    }
+    if (anyCatalogSceneGenerating || pendingCatalogApproval) {
+      toast.error(sceneApprovalProgress.text);
+      return;
+    }
+    if (scene && nextStartableCatalogScene && scene.id !== nextStartableCatalogScene.id) {
+      toast.error(`Generate scene ${nextStartableCatalogScene.sceneNumber} first — clips run in order.`);
+      return;
+    }
+    if (!requireThemeVideoStyle()) return;
+    sequentialGenerateMut.mutate();
+  }
+
   function handleApproveScene(scene: EpisodeSceneCard) {
     if (!activeEpisode?._id) {
       toast.error('Commit the scene queue before approving clips.');
@@ -2719,7 +2769,10 @@ export function ContentEpisodes() {
                     <li key={episode._id}>
                       <button
                         type="button"
-                        onClick={() => loadSavedEpisodeMut.mutate(episode._id)}
+                        onClick={() => {
+                          setBlankEpisodeWorkspaceIntent(false);
+                          loadSavedEpisodeMut.mutate(episode._id);
+                        }}
                         disabled={loadSavedEpisodeMut.isPending}
                         className={`w-full rounded-xl border px-3 py-2.5 text-left transition-colors ${isActive ? 'border-[var(--color-muted-olive)] bg-[var(--color-tea-green)]/25' : 'border-border bg-white hover:border-[var(--color-muted-olive)]/60'}`}
                       >
@@ -3103,10 +3156,10 @@ export function ContentEpisodes() {
                       onChange={(e) => {
                         const file = e.target.files?.[0];
                         if (!file) return;
-                        void fitImageFileToCanvas(file, 1024, 1024, 'cover')
+                        void fitImageFileToCanvas(file, 1280, 720, 'contain')
                           .then((fittedFile) => {
                             setThumbnailPreviewUrl(URL.createObjectURL(fittedFile));
-                            setThumbnailPreviewLabel(`${file.name} reformatted to 1024x1024`);
+                            setThumbnailPreviewLabel(`${file.name} reformatted to 1280x720`);
                             uploadImageMut.mutate(fittedFile);
                           })
                           .catch(() => {
@@ -3178,11 +3231,11 @@ export function ContentEpisodes() {
                                 onClick={() => toggleCharacterReference(reference.id)}
                                 className={`overflow-hidden rounded-lg border text-left transition ${checked ? 'border-[var(--color-muted-olive)] ring-2 ring-[var(--color-tea-green)]/60' : 'border-border hover:border-[var(--color-muted-olive)]/60'}`}
                               >
-                                <div className="aspect-square bg-[var(--color-tea-green)]/25">
+                                <div className="flex aspect-[3/4] items-center justify-center bg-[var(--color-tea-green)]/25 p-1">
                                   <ProtectedStudioImage
                                     originUrl={reference.url}
                                     alt={reference.label}
-                                    className="h-full w-full object-cover"
+                                    className="max-h-full max-w-full object-contain"
                                   />
                                 </div>
                                 <div className="p-2">
@@ -3200,9 +3253,9 @@ export function ContentEpisodes() {
 
                 <div className="rounded-xl border border-border p-4">
                   <p className="text-sm font-semibold text-dark">Preview Canvas</p>
-                  <div className="mt-3 aspect-video overflow-hidden rounded-lg border border-border bg-[var(--color-muted-olive)]">
+                  <div className="mt-3 flex min-h-[280px] max-h-[70vh] items-center justify-center overflow-hidden rounded-lg border border-border bg-[var(--color-muted-olive)]/40 p-2">
                     {generateImageMut.isPending ? (
-                      <div className="flex h-full w-full flex-col items-center justify-center bg-[linear-gradient(135deg,#adc178,#a98467)] p-5 text-center">
+                      <div className="flex h-64 w-full flex-col items-center justify-center rounded-md bg-[linear-gradient(135deg,#adc178,#a98467)] p-5 text-center">
                         <Loader2 size={34} className="animate-spin text-[var(--color-vanilla-cream)]" />
                         <p className="mt-3 text-xs font-semibold text-[var(--color-vanilla-cream)]">Generating episode thumbnail...</p>
                       </div>
@@ -3210,10 +3263,10 @@ export function ContentEpisodes() {
                       <ProtectedStudioImage
                         originUrl={thumbnailPreviewUrl}
                         alt="Episode thumbnail preview"
-                        className="h-full w-full object-cover"
+                        className="max-h-[66vh] w-full object-contain"
                       />
                     ) : (
-                      <div className="flex h-full w-full flex-col items-center justify-center bg-[linear-gradient(135deg,#adc178,#a98467)] p-5 text-center">
+                      <div className="flex h-64 w-full flex-col items-center justify-center rounded-md bg-[linear-gradient(135deg,#adc178,#a98467)] p-5 text-center">
                         <ImageIcon size={34} className="text-[var(--color-vanilla-cream)]" />
                         <p className="mt-3 text-xs font-semibold text-[var(--color-vanilla-cream)]">{thumbnailPreviewLabel || 'Generate or upload an image to preview.'}</p>
                       </div>
@@ -3232,15 +3285,15 @@ export function ContentEpisodes() {
               </div>
 
               <div className="space-y-4">
-                <div className="relative aspect-video overflow-hidden rounded-xl border border-border bg-[var(--color-muted-olive)]">
+                <div className="relative flex min-h-[280px] max-h-[70vh] items-center justify-center overflow-hidden rounded-xl border border-border bg-[var(--color-muted-olive)]/40 p-2">
                   {thumbnailOverlayBaseUrl ? (
                     <ProtectedStudioImage
                       originUrl={thumbnailOverlayBaseUrl}
                       alt="Thumbnail overlay preview"
-                      className="h-full w-full object-cover"
+                      className="max-h-[66vh] w-full object-contain"
                     />
                   ) : (
-                    <div className="flex h-full w-full flex-col items-center justify-center bg-[linear-gradient(135deg,#adc178,#a98467)] p-5 text-center">
+                    <div className="flex h-64 w-full flex-col items-center justify-center rounded-md bg-[linear-gradient(135deg,#adc178,#a98467)] p-5 text-center">
                       <ImageIcon size={42} className="text-[var(--color-vanilla-cream)]" />
                       <p className="mt-3 max-w-xs text-xs font-semibold text-[var(--color-vanilla-cream)]">{committedThumbnailLabel || 'Generate or upload a preview image before styling the title overlay.'}</p>
                     </div>
@@ -3320,6 +3373,7 @@ export function ContentEpisodes() {
                   name: reference.name,
                 }))}
                 onScenesCommitted={(persistedEpisodeId) => {
+                  setBlankEpisodeWorkspaceIntent(false);
                   setScriptApproved(true);
                   setEpisodeWorkspaceKey(persistedEpisodeId);
                   void queryClient.invalidateQueries({ queryKey: ['content', 'episodes', persistedEpisodeId, 'scenes'] });
@@ -3392,6 +3446,20 @@ export function ContentEpisodes() {
                   ) : null}
                 </div>
                 <div className="flex flex-wrap gap-2">
+                  {committedSceneCards.length > 0 && catalogApprovalRemaining > 0 ? (
+                    <button
+                      type="button"
+                      disabled={!canSequentialGenerate || sequentialGenerateMut.isPending}
+                      title={sequentialDisabledReason || undefined}
+                      onClick={() => handleStartNextSceneGeneration()}
+                      className="inline-flex items-center gap-2 rounded-xl bg-[var(--color-ash-brown)] px-4 py-2 text-sm font-semibold text-[var(--color-vanilla-cream)] disabled:opacity-45"
+                    >
+                      {sequentialGenerateMut.isPending ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
+                      {nextStartableCatalogScene
+                        ? `Generate scene ${nextStartableCatalogScene.sceneNumber}`
+                        : 'Generate next scene'}
+                    </button>
+                  ) : null}
                   <button type="button" onClick={addScene} disabled={!scenesQueueCommitted} className="inline-flex items-center gap-2 rounded-xl border border-[var(--color-muted-olive)] px-4 py-2 text-sm font-semibold text-[var(--color-ash-brown)] disabled:opacity-45">
                     <Plus size={15} /> Add Scene
                   </button>
@@ -3546,7 +3614,7 @@ export function ContentEpisodes() {
                           <p className="mt-2 text-xs text-muted">No theme character references are available yet.</p>
                         )}
                       </div>
-                      {(sceneVideoUrl || sceneVideoStatus !== 'idle' || scene.catalogStatus) && (
+                      {(sceneVideoUrl || sceneVideoStatus !== 'idle' || scene.catalogStatus || scene.episodeSceneDocId) && (
                         <div className="mt-3 rounded-xl border border-[var(--color-tea-green)] bg-white p-3">
                           <div className="mb-2 flex items-center justify-between gap-3">
                             <p className="text-xs font-semibold text-dark">Scene Video</p>
@@ -3563,11 +3631,16 @@ export function ContentEpisodes() {
                           <div className="mt-3">
                             <SceneApprovalActions
                               scene={scene}
-                              busy={approveSceneMut.isPending || regenerateSceneMut.isPending || generateSceneVideoMut.isPending}
+                              busy={approveSceneMut.isPending || regenerateSceneMut.isPending || generateSceneVideoMut.isPending || sequentialGenerateMut.isPending}
                               onApprove={handleApproveScene}
                               onRetry={handleRetryScene}
                               onEditRetry={handleEditRetryScene}
                               onCancel={handleCancelScene}
+                              onGenerate={
+                                nextStartableCatalogScene?.id === scene.id
+                                  ? handleStartNextSceneGeneration
+                                  : undefined
+                              }
                             />
                           </div>
                         </div>
@@ -3652,7 +3725,8 @@ export function ContentEpisodes() {
             onVideoModelChange={setVideoModel}
           />
 
-          <Panel title="6. Final Review & Automated Broadcasting" kicker="Inspect the stitched master asset, tweak the workspace if needed, then approve direct posting." icon={CheckCircle2}>
+          <Panel title="6. Final Review & Automated Broadcasting" kicker="Inspect the stitched master asset, share a private preview, then approve direct posting." icon={CheckCircle2}>
+            <EpisodePreviewShare episodeId={activeEpisode?._id} />
             <div className="grid gap-5 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
               <div className="min-h-[min(50vh,20rem)] rounded-xl border border-border bg-white p-4">
                 {reviewState === 'generating' || stitchInFlight ? (

@@ -63,6 +63,8 @@ export type EpisodeSceneCard = {
   chapterIndex?: number;
   chapterTitle?: string;
   generationStartedAt?: string;
+  generationStage?: ContentEpisodeScene['generationStage'];
+  generationPct?: number;
   updatedAt?: string;
   lastFrameUrl?: string;
 };

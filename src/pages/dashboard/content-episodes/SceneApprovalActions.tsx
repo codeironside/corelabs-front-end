@@ -1,8 +1,20 @@
-import { useEffect, useState } from 'react';
-import { CheckCircle2, Loader2, PencilLine, RefreshCcw, Square, X } from 'lucide-react';
+import { useState } from 'react';
+import { CheckCircle2, Loader2, PencilLine, RefreshCcw, Sparkles, Square, X } from 'lucide-react';
 import type { EpisodeSceneCard } from './storyboard';
 import { sceneCatalogStatusLabel } from './sceneMediaState';
 import { isSceneGenerationStuck } from './sceneApproval';
+
+const GENERATION_STAGE_LABEL: Record<NonNullable<EpisodeSceneCard['generationStage']>, string> = {
+  queued: 'Queued',
+  starting_model: 'Starting model',
+  generating_segment_1: 'Generating segment 1 of 2',
+  generating_segment_2: 'Generating segment 2 of 2',
+  assembling: 'Assembling segments',
+  persisting: 'Saving video',
+  awaiting_approval: 'Ready for approval',
+  failed: 'Generation failed',
+  cancelled: 'Generation cancelled',
+};
 
 export function SceneApprovalActions({
   scene,
@@ -11,6 +23,7 @@ export function SceneApprovalActions({
   onRetry,
   onEditRetry,
   onCancel,
+  onGenerate,
 }: {
   scene: EpisodeSceneCard;
   busy?: boolean;
@@ -18,6 +31,7 @@ export function SceneApprovalActions({
   onRetry: (scene: EpisodeSceneCard) => void;
   onEditRetry: (scene: EpisodeSceneCard, editedBeat: string) => void;
   onCancel?: (scene: EpisodeSceneCard) => void;
+  onGenerate?: (scene: EpisodeSceneCard) => void;
 }) {
   const status = scene.catalogStatus;
   const stuck = isSceneGenerationStuck(scene);
@@ -25,22 +39,33 @@ export function SceneApprovalActions({
   const [editOpen, setEditOpen] = useState(false);
   const [draft, setDraft] = useState(scene.visualPrompt);
 
-  useEffect(() => {
-    setRejectOpen(false);
-    setEditOpen(false);
-    setDraft(scene.visualPrompt);
-  }, [scene.id, scene.catalogStatus, scene.visualPrompt]);
-
   if (!status || status === 'unrendered') {
+    if (onGenerate) {
+      return (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => onGenerate(scene)}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--color-ash-brown)] px-2.5 py-1.5 text-[11px] font-semibold text-[var(--color-vanilla-cream)] disabled:opacity-45"
+        >
+          <Sparkles size={12} /> Generate scene {scene.sceneNumber}
+        </button>
+      );
+    }
     return <span className="text-[11px] font-semibold text-[var(--color-ash-brown)]">Unrendered</span>;
   }
 
   if ((status === 'generating' || status === 'queued') && !stuck) {
+    const stageLabel = scene.generationStage
+      ? GENERATION_STAGE_LABEL[scene.generationStage]
+      : 'Generating';
     return (
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="inline-flex items-center gap-2 text-[11px] font-semibold text-[var(--color-ash-brown)]">
-          <Loader2 size={13} className="animate-spin" /> Generating
-        </span>
+      <div className="min-w-[180px] space-y-1.5">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="inline-flex items-center gap-2 text-[11px] font-semibold text-[var(--color-ash-brown)]">
+            <Loader2 size={13} className="animate-spin" /> {stageLabel}
+          </span>
+          {scene.sceneVideoUrl ? <span className="text-[10px] text-black/45">Previous take remains playable</span> : null}
         {onCancel ? (
           <button
             type="button"
@@ -49,6 +74,12 @@ export function SceneApprovalActions({
           >
             <Square size={11} /> Stop
           </button>
+        ) : null}
+        </div>
+        {typeof scene.generationPct === 'number' ? (
+          <div className="h-1.5 overflow-hidden rounded-full bg-black/10" aria-label={`${scene.generationPct}% complete`}>
+            <div className="h-full rounded-full bg-[var(--color-ash-brown)] transition-all" style={{ width: `${Math.max(0, Math.min(100, scene.generationPct))}%` }} />
+          </div>
         ) : null}
       </div>
     );
@@ -119,6 +150,7 @@ export function SceneApprovalActions({
             onClick={() => {
               setRejectOpen((open) => !open);
               setEditOpen(false);
+              setDraft(scene.visualPrompt);
             }}
             className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-[11px] font-semibold text-dark disabled:opacity-45"
           >

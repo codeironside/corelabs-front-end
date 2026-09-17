@@ -6,11 +6,14 @@ import { RoleGate } from '@/components/auth/RoleGate';
 import { HomePage } from '@/pages/marketing/HomePage';
 import { StoriesPage } from '@/pages/marketing/StoriesPage';
 import { StoryDetailPage } from '@/pages/marketing/StoryDetailPage';
+import { StudioDemoPage } from '@/pages/marketing/StudioDemoPage';
+import { EpisodePreviewPage } from '@/pages/marketing/EpisodePreviewPage';
 import { LoginPage } from '@/pages/auth/LoginPage';
 import { UserAccountPage } from '@/pages/auth/UserAccountPage';
 import { ContentStudioPage } from '@/pages/app/ContentStudioPage';
 import { canAccessStudioWorkspace } from '@/config/roles';
 import { useAuthStore } from '@/store/authStore';
+import { CookieConsent } from '@/components/CookieConsent';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -42,6 +45,8 @@ export function App(): React.JSX.Element {
           <Route path="/" element={<HomePage />} />
           <Route path="/stories" element={<StoriesPage />} />
           <Route path="/stories/:slug" element={<StoryDetailPage />} />
+          <Route path="/demo" element={<StudioDemoPage />} />
+          <Route path="/p/:token" element={<EpisodePreviewPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route element={<ProtectedRoute />}>
             <Route path="/account" element={<UserAccountPage />} />
@@ -53,6 +58,7 @@ export function App(): React.JSX.Element {
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        <CookieConsent />
       </BrowserRouter>
       <Toaster
         position="top-center"

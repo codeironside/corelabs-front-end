@@ -1,4 +1,4 @@
-﻿import { BookOpen, ImageIcon, Sparkles, UserRound } from 'lucide-react';
+import { BookOpen, ImageIcon, Sparkles, UserRound } from 'lucide-react';
 import type { ContentTheme, ReferenceImage } from '@/api/content';
 import { ProtectedStudioImage } from '@/pages/dashboard/content-episodes/ProtectedStudioImage';
 import { parseThemeCharacterMentions, parseThemeCharacterReferences } from '../content-episodes/storyboard';
@@ -89,11 +89,11 @@ export function ThemePreviewCard({ theme }: { theme?: ContentTheme }) {
               <div className="grid grid-cols-3 gap-2">
                 {characterRefs.slice(0, 6).map((reference) => (
                   <div key={reference.id} className="overflow-hidden rounded-lg border border-border bg-white">
-                    <div className="aspect-square bg-white">
+                    <div className="flex aspect-[3/4] items-center justify-center bg-white p-1">
                       <ProtectedStudioImage
                         originUrl={reference.url}
                         alt={`${reference.handle} reference`}
-                        className="h-full w-full object-cover"
+                        className="max-h-full max-w-full object-contain"
                       />
                     </div>
                     <div className="border-t border-border px-2 py-1">
@@ -118,11 +118,11 @@ export function ThemePreviewCard({ theme }: { theme?: ContentTheme }) {
         {imageRefs.length > 0 ? (
           <div className="grid grid-cols-3 gap-2">
             {imageRefs.slice(0, 6).map((image, index) => (
-              <div key={`${referenceImageUrl(image)}-${index}`} className="aspect-square overflow-hidden rounded-lg border border-border bg-white">
+              <div key={`${referenceImageUrl(image)}-${index}`} className="flex aspect-[3/4] items-center justify-center overflow-hidden rounded-lg border border-border bg-white p-1">
                 <ProtectedStudioImage
                   originUrl={referenceImageUrl(image)}
                   alt={`Theme reference ${index + 1}`}
-                  className="h-full w-full object-cover"
+                  className="max-h-full max-w-full object-contain"
                 />
               </div>
             ))}

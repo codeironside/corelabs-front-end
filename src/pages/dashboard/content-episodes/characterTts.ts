@@ -1,4 +1,4 @@
-﻿import type { ThemeCharacterMention } from './storyboard';
+import type { ThemeCharacterMention } from './storyboard';
 import { handleForCharacter } from './storyboard';
 import type { EpisodeTtsTone, EpisodeTtsPacePreset, EpisodeTtsTonePreset } from './ttsTone';
 import { normalizePitchPercent, normalizeToneDirection } from './ttsTone';
@@ -15,9 +15,9 @@ export type CharacterTtsProfile = {
   handle: string;
   name: string;
   voiceProfile: string;
-  tonePreset: EpisodeTtsTonePreset;
+  tonePreset: EpisodeTtsTonePreset | string;
   toneDirection?: string;
-  pacePreset: EpisodeTtsPacePreset;
+  pacePreset: EpisodeTtsPacePreset | string;
   pitchPercent: number;
   source: 'theme';
 };
@@ -42,6 +42,7 @@ type ThemeCharacterJson = {
     ttsToneDirection?: string;
     ttsPacePreset?: string;
     ttsPitchPercent?: number | string;
+    ttsPitchDescription?: string;
     /** @deprecated legacy preset slug */
     ttsPitchPreset?: string;
   }>;
@@ -56,18 +57,44 @@ function parseThemeCharacterJson(themeJson: string): ThemeCharacterJson | null {
   }
 }
 
-function parsePacePreset(value?: string): EpisodeTtsPacePreset {
+function parsePacePreset(value?: string): EpisodeTtsPacePreset | string {
+  const trimmed = value?.trim().slice(0, 80);
+  if (!trimmed) return 'normal';
+  return trimmed;
+}
+
+function parseTonePreset(value: string | undefined, _index: number): EpisodeTtsTonePreset | string {
+  const trimmed = value?.trim().slice(0, 120);
+  if (!trimmed) return 'neutral';
+  return trimmed;
+}
+
+/** Map free-text pitch descriptions to a percent when possible. */
+export function inferPitchPercentFromDescription(value?: string | null): number | undefined {
   const trimmed = value?.trim();
-  if (trimmed === 'very-slow' || trimmed === 'slow' || trimmed === 'normal' || trimmed === 'fast' || trimmed === 'very-fast') {
-    return trimmed;
+  if (!trimmed) return undefined;
+  if (/^-?\d+(\.\d+)?%?$/.test(trimmed.replace(/\s/g, ''))) {
+    return normalizePitchPercent(trimmed);
   }
-  return 'normal';
+
+  const lower = trimmed.toLowerCase();
+  if (/(very\s+)?(low|deep|deeper|lower|bass)/.test(lower)) {
+    return /very/.test(lower) ? -50 : -25;
+  }
+  if (/(very\s+)?(high|higher|bright|thin|soprano)/.test(lower)) {
+    return /very/.test(lower) ? 50 : 25;
+  }
+  if (/neutral|mid|medium|average|normal/.test(lower)) return 0;
+  return undefined;
 }
 
 function parseCharacterPitchPercent(character: {
   ttsPitchPercent?: number | string;
   ttsPitchPreset?: string;
+  ttsPitchDescription?: string;
 }): number {
+  const fromDescription = inferPitchPercentFromDescription(character.ttsPitchDescription);
+  if (fromDescription !== undefined) return fromDescription;
   if (character.ttsPitchPercent !== undefined && character.ttsPitchPercent !== null && character.ttsPitchPercent !== '') {
     return normalizePitchPercent(character.ttsPitchPercent);
   }
@@ -75,6 +102,27 @@ function parseCharacterPitchPercent(character: {
     return normalizePitchPercent(character.ttsPitchPreset);
   }
   return 0;
+}
+
+function mergeToneDirection(
+  direction?: string,
+  pitchDescription?: string,
+  voiceDescription?: string,
+): string | undefined {
+  const pitchNote = pitchDescription?.trim();
+  const inferred = inferPitchPercentFromDescription(pitchNote);
+  const pitchAsNote = pitchNote && inferred === undefined ? pitchNote : undefined;
+  const voiceNote = voiceDescription?.trim() && !looksLikeCatalogVoiceId(voiceDescription)
+    ? voiceDescription.trim()
+    : undefined;
+  return normalizeToneDirection([direction, voiceNote, pitchAsNote].filter(Boolean).join(', '));
+}
+
+function looksLikeCatalogVoiceId(value?: string): boolean {
+  const trimmed = value?.trim().toLowerCase() ?? '';
+  if (!trimmed) return false;
+  if (/^(lagos-|neutral-|west-|youthful-|flux-|aura-|groq:|deepgram:)/.test(trimmed)) return true;
+  return ['troy', 'hannah', 'austin', 'dan', 'autumn', 'diana'].includes(trimmed);
 }
 
 function themeCharacterRecord(
@@ -87,8 +135,12 @@ function themeCharacterRecord(
     handle,
     name: character.name?.trim() || handle,
     voiceProfile: character.ttsVoiceProfile?.trim() || narratorVoice,
-    tonePreset: (character.ttsTonePreset as EpisodeTtsTonePreset | undefined) ?? defaultCharacterTonePreset(index),
-    toneDirection: normalizeToneDirection(character.ttsToneDirection),
+    tonePreset: parseTonePreset(character.ttsTonePreset, index),
+    toneDirection: mergeToneDirection(
+      character.ttsToneDirection,
+      character.ttsPitchDescription,
+      character.ttsVoiceProfile,
+    ),
     pacePreset: parsePacePreset(character.ttsPacePreset),
     pitchPercent: parseCharacterPitchPercent(character),
   };
@@ -169,6 +221,7 @@ export function themeCharacterTtsProfile(
     ttsPacePreset?: string;
     ttsPitchPercent?: number | string;
     ttsPitchPreset?: string;
+    ttsPitchDescription?: string;
   },
   index: number,
   narratorVoice: string,
@@ -176,8 +229,12 @@ export function themeCharacterTtsProfile(
   return {
     voiceProfile: character.ttsVoiceProfile?.trim() || narratorVoice,
     tone: {
-      preset: (character.ttsTonePreset as EpisodeTtsTonePreset | undefined) ?? defaultCharacterTonePreset(index),
-      direction: normalizeToneDirection(character.ttsToneDirection),
+      preset: parseTonePreset(character.ttsTonePreset, index),
+      direction: mergeToneDirection(
+        character.ttsToneDirection,
+        character.ttsPitchDescription,
+        character.ttsVoiceProfile,
+      ),
       pace: parsePacePreset(character.ttsPacePreset),
       pitch: parseCharacterPitchPercent(character),
     },

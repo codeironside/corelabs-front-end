@@ -54,6 +54,14 @@ export function unapprovedSceneCount(scenes: SceneApprovalRecord[]): number {
   return scenes.filter((scene) => statusOf(scene) !== "approved").length;
 }
 
+const STARTABLE = new Set<SceneApprovalStatus>(["unrendered", "rejected", "failed"]);
+
+/** First scene that can begin (or restart) sequential generation. */
+export function nextStartableScene<T extends SceneApprovalRecord>(scenes: T[], now = Date.now()): T | undefined {
+  const ordered = [...scenes].sort((left, right) => sceneOrderOf(left) - sceneOrderOf(right));
+  return ordered.find((scene) => STARTABLE.has(statusOf(scene)) || isSceneGenerationStuck(scene, now));
+}
+
 export function stitchBlockedMessage(remaining: number): string {
   if (remaining <= 0) return "";
   if (remaining === 1) return "1 scene still needs approval before rendering the full episode.";
@@ -68,7 +76,8 @@ export function focusApprovalScene<T extends SceneApprovalRecord>(scenes: T[], n
     return (status === "generating" || status === "queued") && !isSceneGenerationStuck(scene, now);
   });
   const pending = ordered.find((scene) => statusOf(scene) === "pending_approval");
-  return stuck ?? generating ?? pending;
+  const next = nextStartableScene(scenes, now);
+  return stuck ?? generating ?? pending ?? next;
 }
 
 export function approvalProgress(scenes: SceneApprovalRecord[], now = Date.now()): {

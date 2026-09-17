@@ -29,6 +29,7 @@ import { StudioCommandCenter } from '@/pages/app/StudioCommandCenter';
 import { StudioPipelinePanel } from '@/pages/app/StudioPipelinePanel';
 import { StudioPerformancePanel } from '@/pages/app/StudioPerformancePanel';
 import { StudioIntegrationsPanel } from '@/pages/app/StudioIntegrationsPanel';
+import { FirstRunCreationStepper, type FirstRunStep } from '@/pages/app/FirstRunCreationStepper';
 
 type StudioTab =
   | 'command'
@@ -43,10 +44,19 @@ type StudioTab =
   | 'integrations';
 
 const CONTENT_STUDIO_SIDEBAR_COLLAPSED_KEY = 'corelabs-studio-sidebar-collapsed';
+const FIRST_RUN_DISMISSED_KEY = 'corelabs-studio-first-run-dismissed';
+
+const FIRST_RUN_TAB: Record<FirstRunStep, StudioTab> = {
+  world: 'themes',
+  characters: 'themes',
+  scenes: 'episodes',
+  assembly: 'episodes',
+  publish: 'stories',
+};
 
 const TABS: { id: StudioTab; label: string; icon: ElementType }[] = [
-  { id: 'episodes', label: 'Episodes', icon: PlaySquare },
   { id: 'command', label: 'Command', icon: Gauge },
+  { id: 'episodes', label: 'Episodes', icon: PlaySquare },
   { id: 'modules', label: 'Modules', icon: Layers3 },
   { id: 'themes', label: 'Themes', icon: Palette },
   { id: 'pipeline', label: 'Pipeline', icon: Clapperboard },
@@ -103,7 +113,7 @@ export function ContentStudioPage(): React.JSX.Element {
   const tabParam = searchParams.get('studioTab') as StudioTab | null;
   const legacyTab = searchParams.get('tab') === 'stories' ? 'stories' : null;
   const activeTab =
-    legacyTab ?? (TABS.some((tab) => tab.id === tabParam) ? (tabParam as StudioTab) : 'episodes');
+    legacyTab ?? (TABS.some((tab) => tab.id === tabParam) ? (tabParam as StudioTab) : 'command');
 
   useEffect(() => {
     try {
@@ -158,6 +168,17 @@ export function ContentStudioPage(): React.JSX.Element {
   const modules = modulesQuery.data ?? [];
   const themes = themesQuery.data ?? [];
   const apiOnline = !modulesQuery.isError && !themesQuery.isError && (modulesQuery.isSuccess || themesQuery.isSuccess);
+  const emptyWorkspace = modulesQuery.isSuccess && themesQuery.isSuccess && modules.length === 0 && themes.length === 0;
+  const explicitOnboarding = searchParams.get('onboarding') === '1';
+  const onboardingStep = (searchParams.get('onboardingStep') as FirstRunStep | null) ?? 'world';
+  const [firstRunDismissed, setFirstRunDismissed] = useState(() => {
+    try {
+      return localStorage.getItem(FIRST_RUN_DISMISSED_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const showFirstRun = explicitOnboarding || (emptyWorkspace && !firstRunDismissed);
 
   const activeTabMeta = useMemo(
     () => TABS.find((tab) => tab.id === activeTab) ?? TABS[0],
@@ -171,6 +192,27 @@ export function ContentStudioPage(): React.JSX.Element {
     next.set('studioTab', tab);
     setSearchParams(next);
     setMobileNavOpen(false);
+  }
+
+  function setFirstRunStep(step: FirstRunStep): void {
+    const next = new URLSearchParams(searchParams);
+    next.set('onboarding', '1');
+    next.set('onboardingStep', step);
+    next.set('studioTab', FIRST_RUN_TAB[step]);
+    setSearchParams(next);
+  }
+
+  function dismissFirstRun(): void {
+    try {
+      localStorage.setItem(FIRST_RUN_DISMISSED_KEY, 'true');
+    } catch {
+      // Non-persistent browser contexts can still dismiss for this session.
+    }
+    setFirstRunDismissed(true);
+    const next = new URLSearchParams(searchParams);
+    next.delete('onboarding');
+    next.delete('onboardingStep');
+    setSearchParams(next, { replace: true });
   }
 
   const navButtonClass = (isActive: boolean, collapsed: boolean): string =>
@@ -315,6 +357,13 @@ export function ContentStudioPage(): React.JSX.Element {
           </aside>
 
           <div className="min-w-0 flex-1 space-y-6">
+            {showFirstRun ? (
+              <FirstRunCreationStepper
+                step={onboardingStep}
+                onStep={setFirstRunStep}
+                onDismiss={dismissFirstRun}
+              />
+            ) : null}
             {activeTab === 'command' && (
               <StudioCommandCenter
                 modules={modules}

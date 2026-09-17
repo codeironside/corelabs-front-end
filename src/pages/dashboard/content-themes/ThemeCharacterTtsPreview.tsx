@@ -1,12 +1,6 @@
 import { Loader2, Volume2 } from 'lucide-react';
-import { Select } from '@/components/Select';
-import { TtsVoiceSelect } from '../content-episodes/TtsVoiceSelect';
 import {
-  formatPitchPercent,
-  normalizePitchPercent,
-  TTS_PACE_PRESETS,
   TTS_TONE_DIRECTION_MAX_LENGTH,
-  TTS_TONE_PRESETS,
   tonePresetLabel,
   toneSummary,
 } from '../content-episodes/ttsTone';
@@ -21,8 +15,14 @@ export type ThemeCharacterTtsFields = {
   ttsToneDirection?: string;
   ttsPacePreset?: string;
   ttsPitchPercent?: number | string;
+  /** Free-text pitch description from the creator (not a preset slug). */
+  ttsPitchDescription?: string;
   ttsTestPhrase?: string;
 };
+
+const TONE_DESC_MAX = 120;
+const PACE_DESC_MAX = 80;
+const PITCH_DESC_MAX = 80;
 
 export function ThemeCharacterTtsPreview({
   character,
@@ -37,7 +37,14 @@ export function ThemeCharacterTtsPreview({
   audioModel: string;
   onUpdateCharacter: (
     id: string,
-    key: 'ttsVoiceProfile' | 'ttsTonePreset' | 'ttsToneDirection' | 'ttsPacePreset' | 'ttsPitchPercent' | 'ttsTestPhrase',
+    key:
+      | 'ttsVoiceProfile'
+      | 'ttsTonePreset'
+      | 'ttsToneDirection'
+      | 'ttsPacePreset'
+      | 'ttsPitchPercent'
+      | 'ttsPitchDescription'
+      | 'ttsTestPhrase',
     value: string,
   ) => void;
   onPreview: (characterId: string) => void;
@@ -47,73 +54,81 @@ export function ThemeCharacterTtsPreview({
   const testPhrase = character.ttsTestPhrase?.trim() || `Hi, I'm ${character.name.trim() || 'this character'}. This is how I sound.`;
   const canPreview = Boolean(audioModel && testPhrase && profile.voiceProfile.trim());
   const deliverySummary = toneSummary(profile.tone) ?? tonePresetLabel(profile.tone.preset);
-  const pitchPercent = normalizePitchPercent(character.ttsPitchPercent);
 
   return (
     <div className="rounded-xl border border-[var(--color-tea-green)]/50 bg-[var(--color-vanilla-cream)]/20 p-3">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">This character&apos;s TTS voice &amp; tone</p>
+      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">This character&apos;s TTS voice &amp; delivery</p>
       <p className="mt-1 text-[11px] leading-relaxed text-muted">
-        Lock each character&apos;s delivery here ΓÇö voice, tone, pace, pitch (%), and direction notes.
-        Episodes pick this character as a dialogue speaker and inherit these settings.
+        Describe how this character should sound in your own words. Episodes inherit these when the character speaks.
       </p>
-      <div className="mt-2 grid gap-2 md:grid-cols-2">
-        <TtsVoiceSelect
-          label="Voice"
-          ariaLabel={`Theme TTS voice for ${character.name || 'character'}`}
-          value={character.ttsVoiceProfile ?? ''}
-          onChange={(next) => onUpdateCharacter(character.id, 'ttsVoiceProfile', next)}
-        />
+      <div className="mt-2 grid gap-2">
         <div>
-          <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">Tone preset</p>
-          <Select
-            aria-label={`Theme TTS tone for ${character.name || 'character'}`}
+          <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">Voice</p>
+          <textarea
+            className="input-field min-h-16 text-sm"
+            aria-label={`Theme TTS voice description for ${character.name || 'character'}`}
+            value={character.ttsVoiceProfile ?? ''}
+            maxLength={120}
+            placeholder="Describe the voice — e.g. warm young Nigerian woman, deep calm male narrator, bright teenage storyteller"
+            onChange={(event) => {
+              onUpdateCharacter(character.id, 'ttsVoiceProfile', event.target.value.slice(0, 120));
+            }}
+          />
+        </div>
+        <div>
+          <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">Tone</p>
+          <textarea
+            className="input-field min-h-16 text-sm"
+            aria-label={`Theme TTS tone description for ${character.name || 'character'}`}
             value={character.ttsTonePreset ?? ''}
-            options={[{ value: '', label: 'Select tone preset' }, ...TTS_TONE_PRESETS]}
-            onChange={(value) => onUpdateCharacter(character.id, 'ttsTonePreset', value)}
+            maxLength={TONE_DESC_MAX}
+            placeholder="Describe the tone — e.g. warm and wry, cold news anchor, soft and intimate"
+            onChange={(event) => {
+              onUpdateCharacter(character.id, 'ttsTonePreset', event.target.value.slice(0, TONE_DESC_MAX));
+            }}
           />
         </div>
         <div>
           <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">Pace</p>
-          <Select
-            aria-label={`Theme TTS pace for ${character.name || 'character'}`}
+          <textarea
+            className="input-field min-h-16 text-sm"
+            aria-label={`Theme TTS pace description for ${character.name || 'character'}`}
             value={character.ttsPacePreset ?? ''}
-            options={[{ value: '', label: 'Select pace' }, ...TTS_PACE_PRESETS]}
-            onChange={(value) => onUpdateCharacter(character.id, 'ttsPacePreset', value)}
+            maxLength={PACE_DESC_MAX}
+            placeholder="Describe the pace — e.g. slow with long pauses, rapid and breathless, steady mid-tempo"
+            onChange={(event) => {
+              onUpdateCharacter(character.id, 'ttsPacePreset', event.target.value.slice(0, PACE_DESC_MAX));
+            }}
           />
         </div>
         <div>
-          <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">Pitch (%)</p>
-          <div className="flex items-center gap-2">
-            <input
-              type="number"
-              min={-100}
-              max={100}
-              step={5}
-              className="input-field text-sm"
-              aria-label={`Theme TTS pitch percent for ${character.name || 'character'}`}
-              value={pitchPercent}
-              onChange={(event) => {
-                const next = normalizePitchPercent(event.target.value);
-                onUpdateCharacter(character.id, 'ttsPitchPercent', String(next));
-              }}
-            />
-            <span className="text-xs font-semibold text-muted">{formatPitchPercent(pitchPercent)}</span>
-          </div>
-          <p className="mt-1 text-[10px] text-muted">0% is neutral. Negative lowers pitch, positive raises it.</p>
+          <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">Pitch</p>
+          <textarea
+            className="input-field min-h-16 text-sm"
+            aria-label={`Theme TTS pitch description for ${character.name || 'character'}`}
+            value={character.ttsPitchDescription ?? ''}
+            maxLength={PITCH_DESC_MAX}
+            placeholder="Describe the pitch — e.g. deeper than average, bright and high, slightly lower"
+            onChange={(event) => {
+              onUpdateCharacter(character.id, 'ttsPitchDescription', event.target.value.slice(0, PITCH_DESC_MAX));
+            }}
+          />
+        </div>
+        <div>
+          <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">Extra delivery notes (optional)</p>
+          <input
+            className="input-field text-sm"
+            value={character.ttsToneDirection || ''}
+            maxLength={TTS_TONE_DIRECTION_MAX_LENGTH}
+            onChange={(e) => onUpdateCharacter(character.id, 'ttsToneDirection', e.target.value.slice(0, TTS_TONE_DIRECTION_MAX_LENGTH))}
+            placeholder="Anything else — accent hints, breathiness, attitude"
+          />
         </div>
       </div>
-      <input
-        className="input-field mt-2 text-sm"
-        value={character.ttsToneDirection || ''}
-        maxLength={TTS_TONE_DIRECTION_MAX_LENGTH}
-        onChange={(e) => onUpdateCharacter(character.id, 'ttsToneDirection', e.target.value.slice(0, TTS_TONE_DIRECTION_MAX_LENGTH))}
-        placeholder="Delivery notes, e.g. aggressive, raspy, fast-talking"
-      />
-      <p className="mt-1 text-[10px] text-muted">Notes for your team ΓÇö not spoken aloud. Tone, pace, and pitch presets shape the voice instead.</p>
       <div className="mt-3 rounded-lg border border-border bg-white p-3">
         <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">Test phrase</p>
         <p className="mt-0.5 text-[11px] text-muted">
-          Preview this character&apos;s preset before saving the theme. Uses {deliverySummary}.
+          Preview this character&apos;s voice before saving the theme. Uses {deliverySummary}.
         </p>
         <textarea
           className="input-field mt-2 min-h-16 text-xs"

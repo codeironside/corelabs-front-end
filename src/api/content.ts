@@ -227,12 +227,55 @@ export interface ContentEpisodeScene {
   error?: string;
   lastFrameUrl?: string;
   generationStartedAt?: string;
+  generationStage?:
+    | "queued"
+    | "starting_model"
+    | "generating_segment_1"
+    | "generating_segment_2"
+    | "assembling"
+    | "persisting"
+    | "awaiting_approval"
+    | "failed"
+    | "cancelled";
+  generationStageAt?: string;
+  generationPct?: number;
   updatedAt?: string;
   rejectionHistory?: Array<{
     reason?: string;
     editedBeat?: string;
     rejectedAt: string;
   }>;
+}
+
+export interface ProductionPlanCharacter {
+  name: string;
+  handle: string;
+  role: string;
+  appearance: string;
+  personality: string;
+}
+
+export interface ProductionPlanModule {
+  title: string;
+  premise: string;
+  durationSeconds: number;
+  firstEpisodeTitle: string;
+  firstEpisodePrompt: string;
+}
+
+export interface ProductionPlan {
+  summary: string;
+  theme: {
+    title: string;
+    genre: string;
+    worldBible: string;
+    atmosphere: string;
+    videoStyle: string;
+  };
+  characters: ProductionPlanCharacter[];
+  modules: ProductionPlanModule[];
+  recommendedFirstCutSeconds: number;
+  estimatedSceneCount: number;
 }
 
 export interface ContentTheme {
@@ -528,7 +571,7 @@ export const generateEpisodeTts = async (payload: {
     "/content/episodes/tts/generate",
     body,
     {
-      timeout: 120_000,
+      timeout: 900_000,
     },
   );
   return data.data;
@@ -899,7 +942,7 @@ export const breakEpisodeIntoBeats = async (
       episodeId: string;
       status: string;
     }>
-  >(`/content/episodes/${episodeId}/break-into-beats`, body ?? {}, { timeout: 600_000 });
+  >(`/content/episodes/${episodeId}/break-into-beats`, body ?? {}, { timeout: 1_800_000 });
   return data.data;
 };
 
@@ -1081,6 +1124,19 @@ export const listContentModules = async (): Promise<ContentModule[]> => {
       "/content/modules",
     );
   return data.data.modules;
+};
+
+export const buildProductionPlan = async (payload: {
+  prompt: string;
+  durationSeconds: number;
+  previousPlan?: ProductionPlan;
+}): Promise<ProductionPlan> => {
+  const { data } = await apiClient.post<ApiResponse<{ plan: ProductionPlan }>>(
+    "/content/command/production-plan",
+    payload,
+    { timeout: 180_000 },
+  );
+  return data.data.plan;
 };
 
 export const createContentModule = async (payload: {

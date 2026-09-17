@@ -1,4 +1,4 @@
-﻿import { characterHandleKey } from './characterTts';
+import { characterHandleKey } from './characterTts';
 import { normalizeToneDirection } from '@/lib/ttsToneDirection';
 
 export const TTS_TONE_PRESETS = [
@@ -41,9 +41,11 @@ const LEGACY_PITCH_PRESET_PERCENT: Record<string, number> = {
 };
 
 export type EpisodeTtsTone = {
-  preset?: EpisodeTtsTonePreset;
+  /** Known preset slug or a creator-typed custom tone. */
+  preset?: EpisodeTtsTonePreset | string;
   direction?: string;
-  pace?: EpisodeTtsPacePreset;
+  /** Known pace slug or a creator-typed custom pace. */
+  pace?: EpisodeTtsPacePreset | string;
   /** Pitch offset as a percentage. 0 = neutral. */
   pitch?: number;
 };
@@ -51,11 +53,13 @@ export type EpisodeTtsTone = {
 export { normalizeToneDirection, TTS_TONE_DIRECTION_MAX_LENGTH } from '@/lib/ttsToneDirection';
 
 export function tonePresetLabel(value?: string) {
-  return TTS_TONE_PRESETS.find((option) => option.value === value)?.label ?? 'Neutral';
+  if (!value?.trim()) return 'Neutral';
+  return TTS_TONE_PRESETS.find((option) => option.value === value)?.label ?? value.trim();
 }
 
 export function pacePresetLabel(value?: string) {
-  return TTS_PACE_PRESETS.find((option) => option.value === value)?.label ?? 'Normal pace';
+  if (!value?.trim()) return 'Normal pace';
+  return TTS_PACE_PRESETS.find((option) => option.value === value)?.label ?? value.trim();
 }
 
 export function normalizePitchPercent(value?: number | string | null): number {
@@ -123,5 +127,5 @@ export function toneSummary(tone: EpisodeTtsTone): string | undefined {
     tone.pitch && tone.pitch !== 0 ? formatPitchPercent(tone.pitch) : '',
     tone.direction?.trim() ?? '',
   ].filter(Boolean);
-  return parts.length ? parts.join(' ┬╖ ') : undefined;
+  return parts.length ? parts.join(' · ') : undefined;
 }

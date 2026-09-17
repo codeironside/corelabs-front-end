@@ -29,8 +29,8 @@ function HeaderCta(): React.JSX.Element {
 
   if (!accessToken) {
     return (
-      <Link to="/login" className={ctaClassName}>
-        start creating
+      <Link to="/demo" className={ctaClassName}>
+        try the studio
       </Link>
     );
   }

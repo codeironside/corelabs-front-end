@@ -175,7 +175,7 @@ test('sceneErrorForDisplay hides storage infra errors when a clip is already pla
   assert.equal(sceneErrorForDisplay(raw, false), 'Could not save this clip. Retry this scene.');
 });
 
-test('mergeCommittedSceneFromQuery does not replace a playable clip with stale generating', () => {
+test('mergeCommittedSceneFromQuery keeps prior clip visible while regenerating without a new url yet', () => {
   const playable: EpisodeSceneCard = {
     ...baseScene,
     sceneVideoUrl: 'https://res.cloudinary.com/demo/video/upload/scene-2.mp4',
@@ -197,7 +197,33 @@ test('mergeCommittedSceneFromQuery does not replace a playable clip with stale g
     error: 'Storage bucket does not exist (ajeoba-54fca.appspot.com). Open https://console.firebase.google.com/project/ajeoba-54fca/storage and click Get started (Blaze billing required), then retry.',
   }, 'episode-b');
 
-  assert.equal(merged.catalogStatus, 'pending_approval');
-  assert.equal(merged.sceneVideoStatus, 'pending_approval');
+  assert.equal(merged.catalogStatus, 'generating');
+  assert.equal(merged.sceneVideoStatus, 'generating');
   assert.equal(merged.sceneVideoUrl, 'https://res.cloudinary.com/demo/video/upload/scene-2.mp4');
+});
+
+test('mergeCommittedSceneFromQuery replaces prior clip when the catalog row has a new url', () => {
+  const playable: EpisodeSceneCard = {
+    ...baseScene,
+    sceneVideoUrl: 'https://res.cloudinary.com/demo/video/upload/scene-2-old.mp4',
+    sceneVideoStatus: 'pending_approval',
+    catalogStatus: 'pending_approval',
+    episodeSceneDocId: 'catalog-scene-2',
+  };
+  const merged = mergeCommittedSceneFromQuery(playable, {
+    _id: 'catalog-scene-2',
+    episodeId: 'episode-b',
+    moduleId: 'module-1',
+    sceneNumber: 2,
+    startSec: 10,
+    endSec: 20,
+    voiceOver: '',
+    visualPrompt: '',
+    characterHandles: [],
+    status: 'pending_approval',
+    cloudinaryUrl: 'https://res.cloudinary.com/demo/video/upload/scene-2-new.mp4',
+  }, 'episode-b');
+
+  assert.equal(merged.catalogStatus, 'pending_approval');
+  assert.equal(merged.sceneVideoUrl, 'https://res.cloudinary.com/demo/video/upload/scene-2-new.mp4');
 });
