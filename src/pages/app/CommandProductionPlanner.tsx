@@ -149,7 +149,7 @@ export function CommandProductionPlanner({
         {messages.map((message, index) => (
           <div key={`${message.role}-${index}`} className={`flex gap-3 ${message.role === 'user' ? 'justify-end' : ''}`}>
             {message.role === 'assistant' ? <Bot size={18} className="mt-1 shrink-0 text-white/50" /> : null}
-            <p className={`max-w-2xl rounded-2xl px-4 py-3 text-sm leading-relaxed ${message.role === 'user' ? 'bg-white text-black' : 'bg-white/5 text-white/70'}`}>{message.text}</p>
+            <p className={`max-w-2xl rounded-2xl px-4 py-3 text-sm leading-relaxed ${message.role === 'user' ? 'studio-solid-control' : 'bg-white/5 text-white/80'}`}>{message.text}</p>
             {message.role === 'user' ? <UserRound size={18} className="mt-1 shrink-0 text-white/50" /> : null}
           </div>
         ))}
@@ -158,14 +158,39 @@ export function CommandProductionPlanner({
       <div className="border-t border-white/10 p-5">
         <div className="mb-3 flex flex-wrap gap-2">
           {DURATION_OPTIONS.map((option) => (
-            <button key={option.seconds} type="button" onClick={() => setDurationSeconds(option.seconds)} className={`rounded-full border px-3 py-1.5 text-xs ${durationSeconds === option.seconds ? 'border-white bg-white text-black' : 'border-white/15 text-white/55'}`}>
+            <button
+              key={option.seconds}
+              type="button"
+              onClick={() => setDurationSeconds(option.seconds)}
+              className={`rounded-full px-3.5 py-1.5 text-xs font-medium ${
+                durationSeconds === option.seconds ? 'studio-chip-active' : 'studio-chip'
+              }`}
+            >
               {option.label}
             </button>
           ))}
         </div>
-        <div className="flex gap-2">
-          <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); submit(); } }} rows={3} placeholder={plan ? 'Ask for a change, e.g. “Make the world warmer and add a rival.”' : 'Describe your story, audience, tone, characters, or even just a rough idea…'} className="min-h-24 flex-1 resize-none rounded-xl border border-white/15 bg-black px-4 py-3 text-sm text-white outline-none placeholder:text-white/30 focus:border-white/40" />
-          <button type="button" onClick={submit} disabled={prompt.trim().length < 10 || planMutation.isPending} className="self-end rounded-xl bg-white p-3 text-black disabled:opacity-35" aria-label="Build production plan">
+        <div className="flex gap-3">
+          <textarea
+            value={prompt}
+            onChange={(event) => setPrompt(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                submit();
+              }
+            }}
+            rows={3}
+            placeholder={plan ? 'Ask for a change, e.g. “Make the world warmer and add a rival.”' : 'Describe your story, audience, tone, characters, or even just a rough idea…'}
+            className="min-h-24 flex-1 resize-none rounded-xl border border-white/25 bg-black/60 px-4 py-3 text-sm text-white outline-none placeholder:text-white/40 focus:border-white/55"
+          />
+          <button
+            type="button"
+            onClick={submit}
+            disabled={prompt.trim().length < 10 || planMutation.isPending}
+            className="studio-solid-control self-end inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-xl transition-transform hover:scale-[1.03] active:scale-[0.98] disabled:pointer-events-none"
+            aria-label="Build production plan"
+          >
             {planMutation.isPending ? <Loader2 className="animate-spin" size={18} /> : <Send size={18} />}
           </button>
         </div>
@@ -204,7 +229,7 @@ export function CommandProductionPlanner({
             ))}
           </div>
           <div className="flex justify-end">
-            <button type="button" disabled={createMutation.isPending} onClick={() => createMutation.mutate()} className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-black disabled:opacity-40">
+            <button type="button" disabled={createMutation.isPending} onClick={() => createMutation.mutate()} className="studio-solid-control inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold disabled:pointer-events-none">
               {createMutation.isPending ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />} Create project and opening episode
             </button>
           </div>

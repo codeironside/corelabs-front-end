@@ -1,4 +1,4 @@
-import { useMemo, type ElementType, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, type ElementType, type ReactNode } from 'react';
 import {
   BookOpen,
   CheckCircle2,
@@ -12,6 +12,29 @@ import type { ContentModule, ContentTheme } from '@/api/content';
 import { CommandProductionPlanner } from '@/pages/app/CommandProductionPlanner';
 
 type StudioTab = 'command' | 'modules' | 'themes' | 'episodes' | 'pipeline' | 'integrations';
+
+const COMMAND_SHOWCASE_VIDEOS = [
+  {
+    src: 'https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260912_105953_21ad8049-9088-4a00-bad3-aee6b5575a2b.mp4',
+    label: 'Character lock',
+    size: 'hero',
+  },
+  {
+    src: 'https://videos.pexels.com/video-files/5435717/5435717-uhd_1440_2732_25fps.mp4',
+    label: 'Scene energy',
+    size: 'tall',
+  },
+  {
+    src: 'https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260814_034538_de4032ce-5035-473d-a5b1-0e2224635a6a.mp4',
+    label: 'World build',
+    size: 'wide',
+  },
+  {
+    src: 'https://videos.pexels.com/video-files/38457662/16331635_2560_1440_30fps.mp4',
+    label: 'Motion craft',
+    size: 'square',
+  },
+] as const;
 
 function ShellPanel({
   title,
@@ -58,6 +81,95 @@ function MetricCard({
   );
 }
 
+function CommandVideoReel(): React.JSX.Element {
+  const rootRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+
+    const tiles = Array.from(root.querySelectorAll<HTMLElement>('.studio-video-tile'));
+    const revealItems = root.querySelectorAll('.studio-command-reveal');
+
+    const revealObserver = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) entry.target.classList.add('is-visible');
+        }
+      },
+      { threshold: 0.12, rootMargin: '80px 0px' },
+    );
+    revealItems.forEach((item) => revealObserver.observe(item));
+
+    const mediaObserver = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          const tile = entry.target as HTMLElement;
+          const video = tile.querySelector('video');
+          if (!(video instanceof HTMLVideoElement)) continue;
+          const src = tile.dataset.src;
+          if (!src) continue;
+
+          if (entry.isIntersecting) {
+            if (!video.src) {
+              video.src = src;
+              video.load();
+            }
+            void video.play().catch(() => undefined);
+            tile.classList.add('is-playing');
+          } else {
+            video.pause();
+            tile.classList.remove('is-playing');
+          }
+        }
+      },
+      { threshold: 0.2, rootMargin: '120px 0px' },
+    );
+    tiles.forEach((tile) => mediaObserver.observe(tile));
+
+    return () => {
+      revealObserver.disconnect();
+      mediaObserver.disconnect();
+    };
+  }, []);
+
+  return (
+    <section ref={rootRef} className="space-y-4">
+      <div className="studio-command-reveal flex items-end justify-between gap-4">
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.22em] text-white/45">Studio motion</p>
+          <h2 className="mt-1 text-lg font-semibold text-white">What Command can shape</h2>
+          <p className="mt-1 max-w-xl text-xs leading-relaxed text-white/55">
+            Short loops from live Studio outputs and cinematic references — the planner turns an idea into this kind of production energy.
+          </p>
+        </div>
+      </div>
+      <div className="studio-video-mosaic">
+        {COMMAND_SHOWCASE_VIDEOS.map((video, index) => (
+          <figure
+            key={video.src}
+            className="studio-command-reveal studio-video-tile"
+            data-size={video.size}
+            data-src={video.src}
+            style={{ transitionDelay: `${0.08 + index * 0.08}s` }}
+          >
+            <video
+              muted
+              loop
+              playsInline
+              preload="none"
+              aria-label={video.label}
+            />
+            <figcaption className="pointer-events-none absolute bottom-3 left-3 z-10 text-[11px] font-medium tracking-wide text-white/90">
+              {video.label}
+            </figcaption>
+          </figure>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export function StudioCommandCenter({
   modules,
   themes,
@@ -79,8 +191,12 @@ export function StudioCommandCenter({
   );
 
   return (
-    <div className="space-y-6">
-      <CommandProductionPlanner onOpenEpisodes={() => onOpen('episodes')} />
+    <div className="space-y-6 animate-fade-in">
+      <div className="studio-command-reveal is-visible">
+        <CommandProductionPlanner onOpenEpisodes={() => onOpen('episodes')} />
+      </div>
+
+      <CommandVideoReel />
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <MetricCard label="Total modules" value={modules.length} icon={Layers3} />

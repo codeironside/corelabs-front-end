@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import {
   BarChart3,
+  Bot,
   ChevronLeft,
   ChevronRight,
   Clapperboard,
@@ -21,6 +22,7 @@ import {
 } from 'lucide-react';
 import { listContentModules, listThemes } from '@/api/content';
 import { useAuthStore } from '@/store/authStore';
+import { featureFlags } from '@/config/featureFlags';
 import { ContentModules } from '@/pages/dashboard/ContentModules';
 import { ContentThemes, ThemeLibraryView } from '@/pages/dashboard/ContentThemes';
 import { ContentEpisodes } from '@/pages/dashboard/ContentEpisodes';
@@ -30,9 +32,11 @@ import { StudioPipelinePanel } from '@/pages/app/StudioPipelinePanel';
 import { StudioPerformancePanel } from '@/pages/app/StudioPerformancePanel';
 import { StudioIntegrationsPanel } from '@/pages/app/StudioIntegrationsPanel';
 import { FirstRunCreationStepper, type FirstRunStep } from '@/pages/app/FirstRunCreationStepper';
+import { StudioProducerPanel } from '@/pages/app/StudioProducerPanel';
 
 type StudioTab =
   | 'command'
+  | 'producer'
   | 'pipeline'
   | 'modules'
   | 'themes'
@@ -56,6 +60,9 @@ const FIRST_RUN_TAB: Record<FirstRunStep, StudioTab> = {
 
 const TABS: { id: StudioTab; label: string; icon: ElementType }[] = [
   { id: 'command', label: 'Command', icon: Gauge },
+  ...(featureFlags.producerEnabled
+    ? [{ id: 'producer' as const, label: 'Producer', icon: Bot }]
+    : []),
   { id: 'episodes', label: 'Episodes', icon: PlaySquare },
   { id: 'modules', label: 'Modules', icon: Layers3 },
   { id: 'themes', label: 'Themes', icon: Palette },
@@ -241,14 +248,14 @@ export function ContentStudioPage(): React.JSX.Element {
                 <Menu size={20} />
               </button>
               <div>
-              <div className="studio-glass-subtle mb-3 inline-flex items-center gap-2 rounded-full border border-white/15 px-3 py-1 text-[10px] font-semibold tracking-[0.18em] text-white/60 uppercase">
-                <ActiveIcon size={12} /> CoreLabsStudio
-              </div>
-              <h1 className="text-2xl font-semibold tracking-tight text-white">Studio</h1>
-              <p className="mt-2 max-w-3xl text-sm leading-relaxed text-white/65">
-                Manage themes, modules, the approval-gated generation pipeline, and publishing from one workspace.
-                {user ? ` Signed in as ${user.email}.` : null}
-              </p>
+                <div className="studio-glass-subtle mb-3 inline-flex items-center gap-2 rounded-full border border-white/15 px-3 py-1 text-[10px] font-semibold tracking-[0.18em] text-white/60 uppercase">
+                  <ActiveIcon size={12} /> CoreLabsStudio
+                </div>
+                <h1 className="text-2xl font-semibold tracking-tight text-white">Studio</h1>
+                <p className="mt-2 max-w-3xl text-sm leading-relaxed text-white/65">
+                  Manage themes, modules, the approval-gated generation pipeline, and publishing from one workspace.
+                  {user ? ` Signed in as ${user.email}.` : null}
+                </p>
               </div>
             </div>
             <div className="studio-pill-row">
@@ -372,6 +379,7 @@ export function ContentStudioPage(): React.JSX.Element {
                 apiOnline={apiOnline}
               />
             )}
+            {activeTab === 'producer' && featureFlags.producerEnabled ? <StudioProducerPanel /> : null}
             {activeTab === 'pipeline' && <StudioPipelinePanel />}
             {activeTab === 'modules' && <ContentModules onCreateTheme={() => setTab('themes')} />}
             {activeTab === 'themes' && <ContentThemes themes={themes} />}
