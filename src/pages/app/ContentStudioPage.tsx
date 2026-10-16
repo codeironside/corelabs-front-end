@@ -60,7 +60,7 @@ const FIRST_RUN_TAB: Record<FirstRunStep, StudioTab> = {
 
 const TABS: { id: StudioTab; label: string; icon: ElementType }[] = [
   { id: 'command', label: 'Command', icon: Gauge },
-  ...(featureFlags.producerEnabled
+  ...(featureFlags.producer_agent_v1
     ? [{ id: 'producer' as const, label: 'Producer', icon: Bot }]
     : []),
   { id: 'episodes', label: 'Episodes', icon: PlaySquare },
@@ -120,7 +120,7 @@ export function ContentStudioPage(): React.JSX.Element {
   const tabParam = searchParams.get('studioTab') as StudioTab | null;
   const legacyTab = searchParams.get('tab') === 'stories' ? 'stories' : null;
   const activeTab =
-    legacyTab ?? (TABS.some((tab) => tab.id === tabParam) ? (tabParam as StudioTab) : 'command');
+    legacyTab ?? (TABS.some((tab) => tab.id === tabParam) ? (tabParam as StudioTab) : featureFlags.producer_agent_v1 ? 'producer' : 'command');
 
   useEffect(() => {
     try {
@@ -379,7 +379,7 @@ export function ContentStudioPage(): React.JSX.Element {
                 apiOnline={apiOnline}
               />
             )}
-            {activeTab === 'producer' && featureFlags.producerEnabled ? <StudioProducerPanel /> : null}
+            {activeTab === 'producer' && featureFlags.producer_agent_v1 ? <StudioProducerPanel /> : null}
             {activeTab === 'pipeline' && <StudioPipelinePanel />}
             {activeTab === 'modules' && <ContentModules onCreateTheme={() => setTab('themes')} />}
             {activeTab === 'themes' && <ContentThemes themes={themes} />}

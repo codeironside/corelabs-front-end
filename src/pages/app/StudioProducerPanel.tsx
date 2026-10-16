@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle,
   Bot,
@@ -25,10 +25,16 @@ import toast from 'react-hot-toast';
 import {
   confirmProducerRun,
   createProducerRun,
+  listProducerRuns,
   producerFeatureDisabled,
   producerQueryKeys,
   runProducerAction,
   sendProducerMessage,
+  uploadProducerAttachment,
+  getProducerAttachment,
+  acceptProducerExtraction,
+  getProducerCapabilities,
+  type ProducerAttachment,
   type ProducerActionName,
   type ProducerChecklistItem,
   type ProducerPlan,
@@ -71,8 +77,8 @@ function ProducerPreview({ url }: { url?: string }): React.JSX.Element | null {
   return (
     <section className={`${surface} overflow-hidden`}>
       <div className="border-b border-white/10 px-4 py-3">
-        <h3 className="text-sm font-semibold">Partial preview</h3>
-        <p className="mt-0.5 text-xs text-white/45">Only approved scenes are included.</p>
+        <h3 className="text-sm font-semibold">Production preview</h3>
+        <p className="mt-0.5 text-xs text-white/45">Latest clip during production; the full assembled draft when complete.</p>
       </div>
       <div className="aspect-video bg-black">
         {media.loading ? (
@@ -206,10 +212,29 @@ export function StudioProducerPanel(): React.JSX.Element {
   const runState = useProducerRun(runId);
   const [intent, setIntent] = useState('');
   const [allowWeb, setAllowWeb] = useState(false);
+  const [mode, setMode] = useState<'autonomous' | 'guided'>('autonomous');
+  const [runtime, setRuntime] = useState('600');
+  const [renderLimit, setRenderLimit] = useState(72);
+  const [attachmentIds, setAttachmentIds] = useState<string[]>([]);
+  const [attachmentRole, setAttachmentRole] = useState<ProducerAttachment['role']>('script');
+  const [attachmentLabel, setAttachmentLabel] = useState('');
+  const [attachmentDescription, setAttachmentDescription] = useState('');
+  const [scriptMode, setScriptMode] = useState<'screenplay' | 'narration'>('screenplay');
+  const [adaptation, setAdaptation] = useState<'faithful' | 'creative'>('faithful');
+  const [audioMode, setAudioMode] = useState<'narration' | 'native'>('narration');
+  const [voiceProfile, setVoiceProfile] = useState('neutral-global-female');
+  const [revision, setRevision] = useState('');
   const [reply, setReply] = useState('');
   const [questionId, setQuestionId] = useState<string>();
   const [disabledReason, setDisabledReason] = useState<string>();
   const unavailableReason = disabledReason ?? producerFeatureDisabled(runState.error);
+  const recentRuns = useQuery({ queryKey: ['producer', 'recent'], queryFn: listProducerRuns, enabled: !runId, staleTime: 0 });
+  const capabilities = useQuery({ queryKey: ['producer', 'capabilities'], queryFn: getProducerCapabilities });
+  const attachments = useQuery({ queryKey: ['producer', 'attachments', attachmentIds], queryFn: () => Promise.all(attachmentIds.map(getProducerAttachment)), enabled: attachmentIds.length > 0 && !runId,
+    refetchInterval: (query) => query.state.data?.some((asset) => asset.status === 'queued' || asset.status === 'processing') ? 2000 : false });
+  const uploadMutation = useMutation({ mutationFn: (file: File) => uploadProducerAttachment(file, { role: attachmentRole, label: attachmentLabel.trim() || file.name, description: attachmentDescription, scriptMode }),
+    onSuccess: (asset) => { setAttachmentIds((previous) => [...previous, asset._id]); setAttachmentLabel(''); setAttachmentDescription(''); if (asset.role === 'script' && adaptation === 'faithful') setAudioMode('narration'); }, onError: (error) => toast.error(errorMessage(error, 'Upload failed.')) });
+  const acceptExtraction = useMutation({ mutationFn: acceptProducerExtraction, onSuccess: () => void attachments.refetch(), onError: (error) => toast.error(errorMessage(error, 'Could not accept extraction.')) });
 
   const updateRun = (run: ProducerRun): void => {
     queryClient.setQueryData(producerQueryKeys.run(run.id), run);
@@ -219,6 +244,11 @@ export function StudioProducerPanel(): React.JSX.Element {
     mutationFn: () => createProducerRun({
       intent: intent.trim(),
       allowWeb,
+      mode,
+      runtimeSeconds: runtime ? Number(runtime) : undefined,
+      format: Number(runtime) >= 120 ? 'episode' : 'social',
+      maxSceneRenders: renderLimit,
+      attachmentIds, adaptation, audioMode, voiceProfile,
       idempotencyKey: crypto.randomUUID(),
     }),
     onSuccess: (run) => {
@@ -258,7 +288,15 @@ export function StudioProducerPanel(): React.JSX.Element {
   const actionMutation = useMutation({
     mutationFn: ({ action, payload }: { action: ProducerActionName; payload?: Record<string, unknown> }) =>
       runProducerAction(runId as string, action, payload),
-    onSuccess: updateRun,
+    onSuccess: (run) => {
+      updateRun(run);
+      if (run.id !== runId) {
+        const next = new URLSearchParams(searchParams);
+        next.set('runId', run.id);
+        setSearchParams(next);
+        setRevision('');
+      }
+    },
     onError: (error) => toast.error(errorMessage(error, 'Producer could not apply that action.')),
   });
 
@@ -286,20 +324,56 @@ export function StudioProducerPanel(): React.JSX.Element {
       <section className="overflow-hidden rounded-2xl border border-white/10 bg-neutral-950">
         <div className="border-b border-white/10 p-5">
           <div className="flex items-center gap-2"><Sparkles size={18} /><h2 className="font-semibold">Agentic Producer</h2></div>
-          <p className="mt-1 text-xs text-white/50">Paste an outcome. Producer will clarify, show an editable plan, and wait for your approval before delegating work.</p>
+          <p className="mt-1 text-xs text-white/50">Describe your story. Producer adapts your script, prepares narration, renders scenes, and assembles one video.</p>
         </div>
         <div className="p-5">
           <textarea autoFocus rows={8} value={intent} onChange={(event) => setIntent(event.target.value)} placeholder="Describe the video, episode, or world you want to produce…" className="w-full resize-y rounded-xl border border-white/15 bg-black px-4 py-3 text-sm leading-relaxed text-white outline-none placeholder:text-white/25 focus:border-white/40" />
+          <section className={`${surface} mt-4 p-4`}>
+            <h3 className="text-sm font-semibold">Script and visual references</h3>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <label className="text-xs text-white/55">File role<select value={attachmentRole} onChange={(event) => setAttachmentRole(event.target.value as ProducerAttachment['role'])} className="mt-1 w-full rounded-lg bg-black p-2">{['script', 'character', 'location', 'prop', 'wardrobe', 'style'].map((role) => <option key={role}>{role}</option>)}</select></label>
+              <label className="text-xs text-white/55">{attachmentRole === 'character' ? 'Character name' : 'Reference label'}<input value={attachmentLabel} onChange={(event) => setAttachmentLabel(event.target.value)} className="mt-1 w-full rounded-lg bg-black p-2" /></label>
+              {attachmentRole === 'script' ? <label className="text-xs text-white/55">Document content<select value={scriptMode} onChange={(event) => setScriptMode(event.target.value as 'screenplay' | 'narration')} className="mt-1 w-full rounded-lg bg-black p-2"><option value="screenplay">Screenplay with speaker names</option><option value="narration">Narration: read the document text</option></select></label> : <label className="text-xs text-white/55">Describe what to preserve<input value={attachmentDescription} onChange={(event) => setAttachmentDescription(event.target.value)} placeholder="Clothing, palette, location or other visible details" className="mt-1 w-full rounded-lg bg-black p-2" /></label>}
+              <label className="text-xs text-white/55">Add file (up to 10 MB)<input type="file" accept={attachmentRole === 'script' ? '.pdf,.docx,.txt' : '.png,.jpg,.jpeg,.webp'} disabled={uploadMutation.isPending || attachmentIds.length >= 9 || (attachmentRole === 'character' && !attachmentLabel.trim())} onChange={(event) => { const file = event.target.files?.[0]; if (file) uploadMutation.mutate(file); event.target.value = ''; }} className="mt-1 w-full text-xs" /></label>
+            </div>
+            {attachmentRole !== 'script' && !capabilities.data?.visionConfigured ? <p className="mt-2 text-xs text-white/45">Add a description of the details to preserve with each reference image.</p> : null}
+            {uploadMutation.isPending ? <p className="mt-3 text-xs text-white/50">Uploading…</p> : null}
+            {attachments.data?.map((asset) => <div key={asset._id} className="mt-3 rounded-lg bg-black/40 p-3 text-xs">
+              <div className="flex items-center justify-between"><span>{asset.label} · {asset.role} · {asset.status.replaceAll('_', ' ')}</span><button type="button" onClick={() => setAttachmentIds((ids) => ids.filter((id) => id !== asset._id))}>Remove</button></div>
+              {asset.error ? <p className="mt-2 text-red-300">{asset.error}</p> : null}
+              {asset.extraction ? <details className="mt-2"><summary>Review extracted script</summary>{asset.extraction.warnings.map((warning) => <p key={warning} className="mt-2 text-amber-200">{warning}</p>)}<p className="mt-2 text-white/50">{asset.extraction.blocks.filter((block) => block.kind === 'dialogue').length} speech blocks detected. Check the document content mode if dialogue is missing.</p>{asset.extraction.pages.map((page) => <div key={page.page} className="mt-3"><p>Page / section {page.page} · {page.method}</p><pre className="mt-1 max-h-80 overflow-auto whitespace-pre-wrap text-white/60">{page.text}</pre></div>)}</details> : null}
+              {asset.status === 'needs_review' ? <button type="button" disabled={acceptExtraction.isPending} onClick={() => acceptExtraction.mutate(asset._id)} className="mt-3 rounded-lg border border-amber-300/30 px-3 py-2">I reviewed the extracted text</button> : null}
+            </div>)}
+            <label className="mt-3 block text-xs text-white/55">Script treatment<select value={adaptation} onChange={(event) => { setAdaptation(event.target.value as 'faithful' | 'creative'); if (event.target.value === 'faithful') setAudioMode('narration'); }} className="ml-2 rounded-lg bg-black p-2"><option value="faithful">Preserve the uploaded script</option><option value="creative">Allow creative rewriting</option></select></label>
+          </section>
+          <div className="mt-4 grid gap-3 sm:grid-cols-3">
+            <label className="text-xs text-white/55">Creative control
+              <select value={mode} onChange={(event) => setMode(event.target.value as 'autonomous' | 'guided')} className="mt-2 w-full rounded-lg border border-white/15 bg-black px-3 py-2 text-white">
+                <option value="autonomous">Handle it for me</option><option value="guided">Work with me</option>
+              </select>
+            </label>
+            <label className="text-xs text-white/55">Duration in seconds (optional)
+              <input type="number" min={5} max={capabilities.data?.maxRuntimeSeconds ?? 600} value={runtime} onChange={(event) => setRuntime(event.target.value)} placeholder="600 = ten minutes" className="mt-2 w-full rounded-lg border border-white/15 bg-black px-3 py-2 text-white" />
+            </label>
+            <label className="text-xs text-white/55">Maximum scene renders, including retries
+              <input type="number" min={1} max={capabilities.data?.maxSceneRenders ?? 720} value={renderLimit} onChange={(event) => setRenderLimit(Number(event.target.value))} className="mt-2 w-full rounded-lg border border-white/15 bg-black px-3 py-2 text-white" />
+            </label>
+          </div>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <label className="text-xs text-white/55">Speech<select value={audioMode} onChange={(event) => setAudioMode(event.target.value as 'narration' | 'native')} className="mt-1 w-full rounded-lg bg-black p-2"><option value="narration">Consistent TTS narrator</option><option value="native" disabled={adaptation === 'faithful' && attachments.data?.some((asset) => asset.role === 'script')}>Audio generated with video</option></select></label>
+            {audioMode === 'narration' ? <label className="text-xs text-white/55">Narrator voice<select value={voiceProfile} onChange={(event) => setVoiceProfile(event.target.value)} className="mt-1 w-full rounded-lg bg-black p-2"><option value="neutral-global-female">Neutral female</option><option value="lagos-calm-male">Calm male</option><option value="lagos-warm-female">Warm female</option><option value="west-african-documentary">Documentary</option><option value="youthful-storyteller">Storyteller</option></select></label> : null}
+          </div>
           <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
             <label className="inline-flex items-center gap-2 text-xs text-white/55">
               <input type="checkbox" checked={allowWeb} onChange={(event) => setAllowWeb(event.target.checked)} className="accent-white" />
               <Globe2 size={14} /> Allow cited web research during research phases
             </label>
-            <button type="button" disabled={intent.trim().length < 10 || createMutation.isPending} onClick={() => createMutation.mutate()} className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-black disabled:opacity-35">
+            <button type="button" disabled={intent.trim().length < 10 || createMutation.isPending || uploadMutation.isPending || (attachmentIds.length > 0 && (attachments.data?.length !== attachmentIds.length || attachments.data.some((asset) => asset.status !== 'ready')))} onClick={() => createMutation.mutate()} className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-black disabled:opacity-35">
               {createMutation.isPending ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />} Start Producer
             </button>
           </div>
-          <p className="mt-4 text-[11px] text-white/30">No generation or toolkit call originates in your browser. Paid work remains approval-gated.</p>
+          <p className="mt-4 text-[11px] text-white/40">{mode === 'autonomous' ? 'Starting authorizes script, narration, video and character image generation within the production budgets. Production continues while you’re away.' : 'Review the plan and each rendered scene before continuing.'} Your draft stays private until you publish it.</p>
+          {recentRuns.data?.length ? <div className="mt-6 border-t border-white/10 pt-4"><h3 className="text-xs font-semibold text-white/60">Recent productions</h3><div className="mt-3 space-y-2">{recentRuns.data.map((saved) => <button type="button" key={saved.id} onClick={() => { const next = new URLSearchParams(searchParams); next.set('runId', saved.id); setSearchParams(next); }} className="flex w-full items-center justify-between gap-3 rounded-lg bg-white/5 px-3 py-2 text-left text-xs"><span className="truncate text-white/75">{saved.plan?.title || saved.intent}</span><span className="shrink-0 text-white/40">{saved.status?.replaceAll('_', ' ')}</span></button>)}</div></div> : null}
         </div>
       </section>
     );
@@ -323,12 +397,16 @@ export function StudioProducerPanel(): React.JSX.Element {
           </div>
           <div className="flex flex-wrap gap-2">
             {canvasUrl ? <Link to={canvasUrl} className="inline-flex items-center gap-1.5 rounded-full border border-white/15 px-3 py-2 text-xs text-white/70 hover:bg-white/5"><ExternalLink size={13} /> Edit in Canvas</Link> : null}
-            <button type="button" disabled={busy} onClick={() => actionMutation.mutate({ action: run.takeover ? 'resume' : 'takeover' })} className="inline-flex items-center gap-1.5 rounded-full border border-white/15 px-3 py-2 text-xs text-white/70 hover:bg-white/5 disabled:opacity-40">
+            <button type="button" disabled={busy || run.status === 'completed' || run.status === 'cancelled'} onClick={() => actionMutation.mutate({ action: run.takeover ? 'resume' : 'takeover' })} className="inline-flex items-center gap-1.5 rounded-full border border-white/15 px-3 py-2 text-xs text-white/70 hover:bg-white/5 disabled:opacity-40">
               {run.takeover ? <Play size={13} /> : <Pause size={13} />} {run.takeover ? 'Resume workers' : 'Take over'}
             </button>
+            {run.status !== 'completed' && run.status !== 'cancelled' ? <button type="button" disabled={busy} onClick={() => actionMutation.mutate({ action: 'cancel' })} className="rounded-full border border-white/15 px-3 py-2 text-xs text-white/60">Cancel production</button> : null}
+            <button type="button" onClick={() => { const next = new URLSearchParams(searchParams); next.delete('runId'); setSearchParams(next); }} className="rounded-full border border-white/15 px-3 py-2 text-xs text-white/60">New production</button>
           </div>
         </div>
         <div className="mt-3"><RunIndicators run={run} connection={runState.connection} /></div>
+        {run.phase === 'audio' ? <p className="mt-3 text-xs text-white/55">Preparing narration: {run.mediaProgress?.narrationPrepared ?? 0} of {run.plan?.sceneCount ?? 0} scenes.</p> : null}
+        {run.phase === 'stitch' ? <p className="mt-3 text-xs text-white/55">Assembling final video: {run.mediaProgress?.completedChapters ?? 0} of {run.mediaProgress?.totalChapters || Math.ceil((run.plan?.sceneCount ?? 0) / 6)} chapters saved.</p> : null}
       </section>
 
       {run.messages.length || run.questions.length ? (
@@ -361,7 +439,7 @@ export function StudioProducerPanel(): React.JSX.Element {
         </section>
       ) : null}
 
-      {run.plan && run.phase === 'plan_confirm' ? (
+      {run.plan && run.phase === 'plan_confirm' && run.status === 'waiting_user' ? (
         <RunPlanEditor
           key={`${run.id}-${run.plan.version ?? run.version ?? 0}`}
           plan={run.plan}
@@ -369,6 +447,47 @@ export function StudioProducerPanel(): React.JSX.Element {
           onSave={(plan) => actionMutation.mutate({ action: 'update_plan', payload: { plan, expectedVersion: run.version } })}
           onConfirm={(plan) => confirmMutation.mutate(plan)}
         />
+      ) : null}
+
+      {(run.phase === 'generate' || run.phase === 'audio') && run.status === 'waiting_user' ? (
+        <section className="rounded-xl border border-sky-400/25 bg-sky-400/[0.08] p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold text-sky-100">Ready to render</h3>
+              <p className="mt-1 max-w-2xl text-xs leading-relaxed text-white/55">
+                Script and scenes are prepared. Starting render will enqueue paid scene generation — confirm when you are ready.
+              </p>
+            </div>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => actionMutation.mutate({ action: 'approve_critic' })}
+              className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-xs font-semibold text-black disabled:opacity-40"
+            >
+              {busy ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />} Start render
+            </button>
+          </div>
+        </section>
+      ) : null}
+
+      {run.phase === 'generate_watch' && run.status === 'running' ? (
+        <section className={`${surface} p-4`}>
+          <div className="flex items-center gap-2 text-sm text-white/70">
+            <Loader2 size={15} className="animate-spin text-sky-300" />
+            Rendering scenes — preview will appear when the first clip is ready.
+          </div>
+        </section>
+      ) : null}
+
+      {run.phase === 'done' && run.status === 'completed' ? (
+        <section className="rounded-xl border border-emerald-400/25 bg-emerald-400/[0.08] p-4">
+          <div className="flex items-center gap-2 text-sm font-semibold text-emerald-100">
+            <CheckCircle2 size={16} /> Producer run complete
+          </div>
+          <p className="mt-1 text-xs text-white/55">Your assembled draft is ready below. Request another cut or open Canvas to refine and publish.</p>
+          <textarea value={revision} onChange={(event) => setRevision(event.target.value)} rows={3} placeholder="Describe changes for the next cut…" className="mt-3 w-full rounded-lg border border-white/15 bg-black/30 px-3 py-2 text-sm text-white" />
+          <button type="button" disabled={busy || !revision.trim()} onClick={() => actionMutation.mutate({ action: 'revise', payload: { note: revision.trim() } })} className="mt-2 rounded-full bg-white px-4 py-2 text-xs font-semibold text-black disabled:opacity-40">Create revised draft</button>
+        </section>
       ) : null}
 
       {run.failure ? (
@@ -415,6 +534,17 @@ export function StudioProducerPanel(): React.JSX.Element {
       ) : null}
 
       <ProducerPreview url={run.previewUrl} />
+
+      {run.contextStats ? (
+        <section className={`${surface} p-4`}>
+          <h3 className="text-sm font-semibold">Story memory</h3>
+          <p className="mt-2 text-xs text-white/50">
+            {run.contextStats.compacted ? `Using ${run.contextStats.checkpoints} verified memory summaries.` : 'Original story context fits this step.'}
+            {' '}Your brief, world rules and character locks stay preserved. Full sources remain saved.
+          </p>
+          {run.contextStats.degraded ? <p className="mt-2 text-xs text-amber-200">Memory is using fallback verification or relevance selection.</p> : null}
+        </section>
+      ) : null}
 
       {(run.budgets.length || run.citations.length || run.feature?.researchEnabled !== false) ? (
         <div className="grid gap-4 lg:grid-cols-2">

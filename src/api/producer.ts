@@ -21,6 +21,7 @@ export type ProducerPhase =
   | 'script_gate'
   | 'scenes'
   | 'scene_gates'
+  | 'audio'
   | 'generate'
   | 'generate_watch'
   | 'stitch'
@@ -40,7 +41,9 @@ export type ProducerActionName =
   | 'approve_critic'
   | 'reject_critic'
   | 'update_plan'
-  | 'set_web';
+  | 'set_web'
+  | 'revise';
+// Revisions create a new production so the previous cut remains available.
 
 export interface ProducerMessage {
   id?: string;
@@ -134,7 +137,10 @@ export interface ProducerRun {
   entityRefs: ProducerEntityRefs;
   previewUrl?: string;
   allowWeb: boolean;
+  mode: 'autonomous' | 'guided';
   degradedCritic: boolean;
+  mediaProgress?: { narrationPrepared: number; completedChapters: number; totalChapters: number };
+  contextStats?: { compacted: boolean; checkpoints: number; degraded: boolean; estimatedInputTokens: number; inputLimit: number; omittedSourceCount: number };
   takeover: boolean;
   failure?: { message: string; retryable?: boolean; skippable?: boolean };
   feature?: ProducerFeatureState;
@@ -162,6 +168,9 @@ function normalizeRun(value: RunEnvelope): ProducerRun {
       maxJevCalls?: number; jevCalls?: number;
       maxWebFetches?: number; webFetches?: number;
       maxSceneRenders?: number; sceneRenders?: number;
+      imageRenders?: number; maxImageRenders?: number;
+      contextCalls?: number; maxContextCalls?: number;
+      ttsCalls?: number; maxTtsCalls?: number;
     };
   };
   const flags = raw.flags ?? {};
@@ -170,17 +179,23 @@ function normalizeRun(value: RunEnvelope): ProducerRun {
       maxJevCalls?: number; jevCalls?: number;
       maxWebFetches?: number; webFetches?: number;
       maxSceneRenders?: number; sceneRenders?: number;
+      imageRenders?: number; maxImageRenders?: number;
+      contextCalls?: number; maxContextCalls?: number;
+      ttsCalls?: number; maxTtsCalls?: number;
     }
     : null;
   const budgets = Array.isArray(raw.budgets) ? raw.budgets : [
     { label: 'Critic calls', used: budgetRecord?.jevCalls ?? 0, limit: budgetRecord?.maxJevCalls ?? 0 },
     { label: 'Web fetches', used: budgetRecord?.webFetches ?? 0, limit: budgetRecord?.maxWebFetches ?? 0 },
     { label: 'Scene renders', used: budgetRecord?.sceneRenders ?? 0, limit: budgetRecord?.maxSceneRenders ?? 0 },
+    { label: 'Character images', used: budgetRecord?.imageRenders ?? 0, limit: budgetRecord?.maxImageRenders ?? 3 },
+    { label: 'Memory calls', used: budgetRecord?.contextCalls ?? 0, limit: budgetRecord?.maxContextCalls ?? 200 },
+    { label: 'Narration calls', used: budgetRecord?.ttsCalls ?? 0, limit: budgetRecord?.maxTtsCalls ?? 0 },
   ];
   const clarificationCount = raw.clarificationCount ?? 0;
   const questions = raw.questions?.length
     ? raw.questions.slice(0, 3)
-    : raw.phase === 'plan_confirm' && clarificationCount < 3
+    : raw.phase === 'plan_confirm' && raw.status === 'waiting_user' && clarificationCount < 3
       ? [{ id: `clarification-${clarificationCount + 1}`, prompt: 'Anything Producer should clarify before you confirm this plan?' }]
       : [];
   const lastIssue = raw.openIssues?.at(-1);
@@ -210,6 +225,8 @@ function normalizeRun(value: RunEnvelope): ProducerRun {
     },
     previewUrl: raw.previewUrl ?? (typeof flags.previewUrl === 'string' ? flags.previewUrl : undefined),
     allowWeb: raw.allowWeb ?? flags.allowWebDuringGenerate === true,
+    mode: flags.mode === 'autonomous' ? 'autonomous' : 'guided',
+    mediaProgress: { narrationPrepared: Number(flags.narrationPrepared ?? 0), completedChapters: Number(flags.completedChapters ?? 0), totalChapters: Number(flags.totalChapters ?? 0) },
     degradedCritic: raw.degradedCritic ?? raw.critic?.degraded === true,
     takeover: raw.takeover ?? (raw.phase === 'takeover' || raw.status === 'takeover'),
     failure: raw.failure ?? (lastIssue?.message ? {
@@ -231,12 +248,41 @@ export const producerQueryKeys = {
   run: (runId: string) => ['producer', 'run', runId] as const,
 };
 
+export interface ProducerAttachment {
+  _id: string; label: string; role: 'script' | 'character' | 'location' | 'prop' | 'wardrobe' | 'style';
+  status: 'queued' | 'processing' | 'ready' | 'needs_review' | 'failed';
+  url: string; error?: string;
+  extraction?: { pages: Array<{ page: number; text: string; method: string; confidence?: number }>; warnings: string[]; blocks: Array<{ kind: string; text: string }> };
+  analysis?: { description: string; method: string };
+}
+export async function uploadProducerAttachment(file: File, input: { role: ProducerAttachment['role']; label: string; description: string; scriptMode: 'screenplay' | 'narration' }): Promise<ProducerAttachment> {
+  const form = new FormData(); form.append('file', file);
+  Object.entries(input).forEach(([key, value]) => form.append(key, value));
+  const { data } = await apiClient.post<ApiResponse<ProducerAttachment>>('/producer/attachments', form, { timeout: 120000 });
+  return data.data;
+}
+export async function getProducerAttachment(id: string): Promise<ProducerAttachment> {
+  return (await apiClient.get<ApiResponse<ProducerAttachment>>(`/producer/attachments/${id}`)).data.data;
+}
+export async function acceptProducerExtraction(id: string): Promise<ProducerAttachment> {
+  return (await apiClient.post<ApiResponse<ProducerAttachment>>(`/producer/attachments/${id}/accept-extraction`)).data.data;
+}
+export async function getProducerCapabilities(): Promise<{ maxRuntimeSeconds: number; maxSceneRenders: number; visionConfigured: boolean }> {
+  return (await apiClient.get<ApiResponse<{ maxRuntimeSeconds: number; maxSceneRenders: number; visionConfigured: boolean }>>('/producer/capabilities')).data.data;
+}
+
 export async function createProducerRun(input: {
   intent: string;
   allowWeb: boolean;
   idempotencyKey: string;
   format?: 'social' | 'episode';
   runtimeSeconds?: number;
+  mode?: 'autonomous' | 'guided';
+  maxSceneRenders?: number;
+  attachmentIds?: string[];
+  adaptation?: 'faithful' | 'creative';
+  audioMode?: 'narration' | 'native';
+  voiceProfile?: string;
 }): Promise<ProducerRun> {
   const { data } = await apiClient.post<ApiResponse<RunEnvelope>>(
     '/producer/runs',
@@ -246,7 +292,13 @@ export async function createProducerRun(input: {
       allowWeb: input.allowWeb,
       allowWebDuringGenerate: input.allowWeb,
       format: input.format ?? (input.intent.toLowerCase().includes('episode') ? 'episode' : 'social'),
-      runtimeSeconds: input.runtimeSeconds ?? 20,
+      runtimeSeconds: input.runtimeSeconds,
+      mode: input.mode ?? 'autonomous',
+      maxSceneRenders: input.maxSceneRenders ?? 72,
+      attachmentIds: input.attachmentIds ?? [],
+      adaptation: input.adaptation ?? 'faithful',
+      audioMode: input.audioMode ?? 'narration',
+      voiceProfile: input.voiceProfile ?? 'neutral-global-female',
       idempotencyKey: input.idempotencyKey,
       dryRun: false,
     },
@@ -260,6 +312,11 @@ export async function createProducerRun(input: {
 export async function getProducerRun(runId: string): Promise<ProducerRun> {
   const { data } = await apiClient.get<ApiResponse<RunEnvelope>>(`/producer/runs/${encodeURIComponent(runId)}`);
   return normalizeRun(data.data);
+}
+
+export async function listProducerRuns(): Promise<ProducerRun[]> {
+  const { data } = await apiClient.get<ApiResponse<RunEnvelope[]>>('/producer/runs');
+  return data.data.map(normalizeRun);
 }
 
 export async function sendProducerMessage(
@@ -282,6 +339,14 @@ export async function confirmProducerRun(runId: string, plan: ProducerPlan): Pro
   return normalizeRun(data.data);
 }
 
+export async function syncProducerGeneration(runId: string): Promise<ProducerRun> {
+  const { data } = await apiClient.post<ApiResponse<RunEnvelope>>(
+    `/producer/runs/${encodeURIComponent(runId)}/sync-generation`,
+    {},
+  );
+  return normalizeRun(data.data);
+}
+
 export async function runProducerAction(
   runId: string,
   action: ProducerActionName,
@@ -298,6 +363,7 @@ export async function runProducerAction(
     reject_critic: 'simplify',
     update_plan: 'update_plan',
     set_web: 'allow_web',
+    revise: 'revise',
   };
   const body: Record<string, unknown> = { idempotencyKey: crypto.randomUUID() };
   if (typeof payload?.step === 'string') body.step = payload.step;

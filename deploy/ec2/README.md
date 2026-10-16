@@ -51,6 +51,8 @@ Secrets: `EC2_HOST`, `EC2_USER`, `EC2_SSH_KEY`, plus Firebase web config from pr
 
 ## One-time EC2 setup (frontend server)
 
+For the shared five-app host, run the backend repo's `deploy/ec2/setup-shared-host.sh` once after installing nginx. It caps the combined Node service journal at 250 MB / 14 days and configures nginx log rotation, preventing logs from filling the 20 GiB root volume.
+
 ```bash
 sudo apt update && sudo apt install -y nginx rsync certbot   # or dnf on Amazon Linux
 sudo mkdir -p /opt/corelabs/{releases,current,scripts/frontend} /var/www/certbot
