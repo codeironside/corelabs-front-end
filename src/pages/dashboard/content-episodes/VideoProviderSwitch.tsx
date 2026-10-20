@@ -17,7 +17,7 @@ export function VideoProviderSwitch({
   onChange: (model: string) => void;
   compact?: boolean;
 }) {
-  const ltxReady = Boolean(defaultModelForVideoProvider(models, 'modal'));
+  const geminiReady = Boolean(defaultModelForVideoProvider(models, 'google'));
 
   return (
     <div className={compact ? '' : 'rounded-xl border border-border bg-white p-4'}>
@@ -26,15 +26,15 @@ export function VideoProviderSwitch({
           <p className={`${compact ? 'text-[11px]' : 'text-sm'} font-semibold text-dark`}>Studio video</p>
           {!compact ? (
             <p className="mt-1 text-xs leading-relaxed text-muted">
-              Scene clips always use self-hosted LTX 2.5 (character I2V + native audio). Creators do not pick a provider.
+              Scene clips use Gemini Omni Flash. Creators do not pick a provider.
             </p>
           ) : null}
         </div>
       </div>
       <div className="mt-3 rounded-xl border border-[var(--color-muted-olive)] bg-[var(--color-tea-green)]/25 px-3 py-2">
-        <p className="text-xs font-semibold text-dark">LTX 2.5 I2V</p>
+        <p className="text-xs font-semibold text-dark">Gemini Omni Flash</p>
         <p className="mt-0.5 text-[10px] font-medium text-muted">
-          {ltxReady ? 'Self-hosted · locked' : 'Not configured on the server yet'}
+          {geminiReady ? 'Gemini · locked' : 'Not configured on the server yet'}
         </p>
       </div>
       {/* Idle commercial / third-party pickers — keep for later, do not expose to creators.
@@ -71,8 +71,8 @@ export function VideoProviderSwitch({
         </select>
       ) : null}
       */}
-      {!ltxReady ? (
-        <p className="mt-2 text-xs leading-relaxed text-[var(--color-faded-copper)]">Self-hosted video is not configured on the server yet.</p>
+      {!geminiReady ? (
+        <p className="mt-2 text-xs leading-relaxed text-[var(--color-faded-copper)]">Gemini is not configured on the server yet.</p>
       ) : null}
     </div>
   );

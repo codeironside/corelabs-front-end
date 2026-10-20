@@ -2,9 +2,9 @@ import type { AiModelOption } from '@/api/content';
 
 export type VideoProviderId = 'modal' | 'comfy' | 'openai' | 'google' | 'xai';
 
-/** Only Studio LTX 2.5 is live. Other providers stay in code, idle. */
+/** Gemini Omni Flash is the active Studio video model. */
 export const VIDEO_PROVIDER_META: Array<{ id: VideoProviderId; label: string; hint: string }> = [
-  { id: 'modal', label: 'Studio LTX', hint: 'Self-hosted 2.5 I2V + audio' },
+  { id: 'google', label: 'Gemini', hint: 'Omni Flash video' },
   // { id: 'comfy', label: 'LTX', hint: '2.5' },
   // { id: 'openai', label: 'OpenAI', hint: 'Sora' },
   // { id: 'google', label: 'Google', hint: 'Veo' },
@@ -15,7 +15,7 @@ const PREFERRED_MODELS: Record<VideoProviderId, string[]> = {
   modal: ['modal:ltx-2.5', 'modal:wan-i2v'],
   comfy: ['comfy:ltx-2.5'],
   openai: ['openai:sora-2', 'openai:sora-2-pro'],
-  google: ['google:veo-3.1', 'google:veo'],
+  google: ['google:omni-1.1-flash'],
   xai: ['xai:grok-imagine-video'],
 };
 

@@ -209,7 +209,7 @@ export function MarketingSections(): React.JSX.Element {
         id="ai"
         eyebrow="our approach to ai"
         title="Built on the Best Available Models"
-        body="CoreLabsStudio doesn't build its own AI models — we build the tooling on top of them. Every video is generated using leading models from providers including Anthropic, OpenAI, Google, and xAI, chosen per task rather than locked to one provider. Our work is the layer that turns raw generation into consistent, ongoing content: the scene planning, character-locking, and continuity systems that make long-form AI storytelling possible."
+        body="CoreLabsStudio combines Gemini with its own production tooling to turn a creator's idea into consistent, ongoing content. Scene planning, character references, narration and editing work together to keep stories coherent as they grow into long-form video."
       />
 
       <Section
